@@ -35,7 +35,7 @@ export async function GET(request) {
     const visitorTeamIdIdx = gameHeaders.indexOf('VISITOR_TEAM_ID');
     
     if (!gamesRowSet || gamesRowSet.length === 0) {
-      return NextResponse.json({ predictions: [], message: 'No games scheduled for today.' });
+      return NextResponse.json({ matchups: [], players: [], message: 'No games scheduled for today.' });
     }
 
     const todayMatchups = [];
@@ -136,6 +136,8 @@ export async function GET(request) {
          'BLK': player[pHeaders.indexOf('BLK')],
          '3PM': player[pHeaders.indexOf('FG3M')]
        };
+       
+       const isHomePlayer = todayMatchups.some(m => m.home === (teamIdToName[teamId] || teamId));
 
        const statEvaluations = [];
 
@@ -168,6 +170,7 @@ export async function GET(request) {
           team: teamAbbr,
           opponent: oppName,
           opponentId: opponentIdMatch,
+          isHome: isHomePlayer,
           evaluations: statEvaluations
        });
     });
