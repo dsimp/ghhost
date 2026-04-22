@@ -23,11 +23,16 @@ export default function Home() {
 
   const [predictionsData, setPredictionsData] = useState(null);
   const [predictorLoading, setPredictorLoading] = useState(false);
+  const [selectedGameFilter, setSelectedGameFilter] = useState('');
   
   const [targetStat, setTargetStat] = useState('PTS'); 
 
   const [spatialResults, setSpatialResults] = useState({});
   const [riskResults, setRiskResults] = useState({});
+
+  const [flippedCards, setFlippedCards] = useState({});
+  const [h2hData, setH2hData] = useState({});
+
 
   useEffect(() => {
     Promise.all([
@@ -39,7 +44,7 @@ export default function Home() {
     }).catch(err => console.error("Initial load err", err));
   }, []);
 
-  const runRiskEngine = async (playerId, opponentName, isHomeGame) => {
+  const runRiskEngine = async (playerId, opponentName, opponentAbbr, isHomeGame) => {
     setRiskResults(prev => ({...prev, [playerId]: { loading: true }}));
     try {
       const statsRes = await fetch(`/api/nba/playerStats?playerId=${playerId}`);
@@ -51,7 +56,7 @@ export default function Home() {
 
       const recentLogs = logs.slice(0, 5); 
       const locLogs = logs.filter(l => l.isHome === isHomeGame);
-      const h2hLogs = logs.filter(l => l.opponent && l.opponent.includes(opponentName));
+      const h2hLogs = logs.filter(l => l.opponent && l.opponent.includes(opponentAbbr));
       
       const calcAvg = (arr, stat) => arr.length > 0 ? (arr.reduce((acc, l) => acc + l[stat], 0) / arr.length).toFixed(1) : 0;
       
@@ -60,8 +65,8 @@ export default function Home() {
       let riskScore = 0; 
       
       // Analyze variance anomalies across fundamental categories
-      ['pts', 'reb', 'ast', 'fgm'].forEach(stat => {
-         const catName = stat === 'fgm' ? '3PM' : stat.toUpperCase();
+      ['pts', 'reb', 'ast', 'fg3m'].forEach(stat => {
+         const catName = stat === 'fg3m' ? '3PM' : stat.toUpperCase();
          const seasonBase = parseFloat(calcAvg(logs, stat));
          if (seasonBase < 2) return; 
          
@@ -105,11 +110,75 @@ export default function Home() {
         rhythmArray = [...recentLogs].reverse().map(l => l.pts).join(' → ');
       }
 
+      const lastGame = logs.length > 0 ? logs[0] : null;
+
+      let h2hAverages = null;
+      if (h2hLogs.length > 0) {
+         h2hAverages = {
+            pts: calcAvg(h2hLogs, 'pts'),
+            reb: calcAvg(h2hLogs, 'reb'),
+            ast: calcAvg(h2hLogs, 'ast'),
+            stl: calcAvg(h2hLogs, 'stl'),
+            blk: calcAvg(h2hLogs, 'blk'),
+            fg3m: calcAvg(h2hLogs, 'fg3m'),
+            games: h2hLogs.length
+         };
+      }
+      
+      if (lastGame) {
+         if (!h2hAverages) h2hAverages = { pts: 'N/A', reb: 'N/A', ast: 'N/A', stl: 'N/A', blk: 'N/A', fg3m: 'N/A', games: 0 };
+         h2hAverages.lastGamePts = lastGame.pts;
+         h2hAverages.lastGameReb = lastGame.reb;
+         h2hAverages.lastGameAst = lastGame.ast;
+         h2hAverages.lastGameStl = lastGame.stl;
+         h2hAverages.lastGameBlk = lastGame.blk;
+         h2hAverages.lastGameFg3m = lastGame.fg3m;
+         h2hAverages.lastGameOpp = lastGame.opponent;
+      }
+
       setRiskResults(prev => ({...prev, [playerId]: {
-         loaded: true, loading: false, warnings, highlights, finalRisk, riskColor, rhythmArray
+         loaded: true, loading: false, warnings, highlights, finalRisk, riskColor, rhythmArray, h2hAverages
       }}));
     } catch (e) {
       setRiskResults(prev => ({...prev, [playerId]: { loading: false, error: e.message }}));
+    }
+  };
+
+  const handleCardFlip = async (playerId, opponentAbbr, categoryKey) => {
+    const flipKey = `${playerId}-${categoryKey}`;
+    setFlippedCards(prev => ({ ...prev, [flipKey]: !prev[flipKey] }));
+
+    if (h2hData[playerId] || riskResults[playerId]?.h2hAverages) return;
+
+    setH2hData(prev => ({...prev, [playerId]: { loading: true }}));
+    try {
+      const statsRes = await fetch(`/api/nba/playerStats?playerId=${playerId}`);
+      const stats = await statsRes.json();
+      if(stats.error || !stats.gameLogs) throw new Error("Failed");
+      const h2hLogs = stats.gameLogs.filter(l => l.opponent && l.opponent.includes(opponentAbbr));
+      const lastGame = stats.gameLogs.length > 0 ? stats.gameLogs[0] : null;
+      const calcAvg = (arr, stat) => arr.length > 0 ? (arr.reduce((acc, l) => acc + l[stat], 0) / arr.length).toFixed(1) : 'N/A';
+      
+      const avgs = {
+        pts: calcAvg(h2hLogs, 'pts'),
+        reb: calcAvg(h2hLogs, 'reb'),
+        ast: calcAvg(h2hLogs, 'ast'),
+        stl: calcAvg(h2hLogs, 'stl'),
+        blk: calcAvg(h2hLogs, 'blk'),
+        fg3m: calcAvg(h2hLogs, 'fg3m'),
+        games: h2hLogs.length,
+        lastGamePts: lastGame ? lastGame.pts : '-',
+        lastGameReb: lastGame ? lastGame.reb : '-',
+        lastGameAst: lastGame ? lastGame.ast : '-',
+        lastGameStl: lastGame ? lastGame.stl : '-',
+        lastGameBlk: lastGame ? lastGame.blk : '-',
+        lastGameFg3m: lastGame ? lastGame.fg3m : '-',
+        lastGameOpp: lastGame ? lastGame.opponent : '-'
+      };
+
+      setH2hData(prev => ({...prev, [playerId]: { loading: false, data: avgs }}));
+    } catch (e) {
+      setH2hData(prev => ({...prev, [playerId]: { loading: false, error: "Error" }}));
     }
   };
 
@@ -223,6 +292,7 @@ export default function Home() {
     setPlayerStats(null);
     setActiveZone(null);
     
+    setSelectedGameFilter('');
     if (newMode === 'PREDICTOR' && !predictionsData) {
        loadPredictor();
     }
@@ -249,7 +319,7 @@ export default function Home() {
     if (logs.length === 0) return null;
     const sum = logs.reduce((acc, log) => {
        acc.PTS += log.pts; acc.REB += log.reb; acc.AST += log.ast;
-       acc.STL += log.stl; acc.TOV += log.tov; acc.BLK += log.blk; acc['3PM'] += log.fgm;
+       acc.STL += log.stl; acc.TOV += log.tov; acc.BLK += log.blk; acc['3PM'] += log.fg3m;
        return acc;
     }, { PTS: 0, REB: 0, AST: 0, STL: 0, TOV: 0, BLK: 0, '3PM': 0 });
 
@@ -402,16 +472,42 @@ export default function Home() {
              <div style={{marginBottom: '40px', textAlign: 'center'}}>
                 <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>
                 <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px', flexWrap: 'wrap'}}>
-                  {predictionsData.matchups.map((m, i) => (
-                    <div key={i} style={{background: 'rgba(255,255,255,0.05)', padding: '8px 16px', borderRadius: '8px', border: '1px solid var(--panel-border)'}}>{m.away} <span style={{color: '#f59e0b'}}>@</span> {m.home}</div>
-                  ))}
+                  {predictionsData.matchups.map((m, i) => {
+                    const gameLabel = `${m.away} @ ${m.home}`;
+                    const isSelected = selectedGameFilter === gameLabel;
+                    return (
+                      <div key={i} 
+                           onClick={() => setSelectedGameFilter(isSelected ? '' : gameLabel)}
+                           style={{
+                             background: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255,255,255,0.05)', 
+                             padding: '8px 16px', 
+                             borderRadius: '8px', 
+                             border: isSelected ? '1px solid #f59e0b' : '1px solid var(--panel-border)',
+                             cursor: 'pointer',
+                             transition: '0.2s'
+                           }}>
+                         {m.away} <span style={{color: '#f59e0b'}}>@</span> {m.home}
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                <div style={{marginTop: '24px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', display: 'inline-block', textAlign: 'left', border: '1px solid var(--panel-border)'}}>
+                  <h3 style={{fontSize: '0.9rem', marginBottom: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Prediction Glossary (Based on Opponent Defensive Rank)</h3>
+                  <div style={{display: 'flex', gap: '20px', fontSize: '0.85rem', flexWrap: 'wrap', justifyContent: 'center'}}>
+                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#22c55e'}}></div> <strong>Strong Over:</strong> Opponent Ranks 1-5 (Worst Defense)</div>
+                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#4ade80'}}></div> <strong>Over:</strong> Opponent Ranks 6-15 (Below Average)</div>
+                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#f87171'}}></div> <strong>Under:</strong> Opponent Ranks 16-25 (Above Average)</div>
+                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#ef4444'}}></div> <strong>Strong Under:</strong> Opponent Ranks 26-30 (Elite Defense)</div>
+                  </div>
+                  <p style={{fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px', textAlign: 'center'}}>*Rank 1 means the opponent gives up the MOST of a given stat (best for player), Rank 30 gives up the LEAST (worst for player).</p>
                 </div>
              </div>
           )}
 
           {!predictorLoading && predictionsData?.players && (
              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px' }}>
-                {predictionsData.players.map((p, i) => (
+                {predictionsData.players.filter(p => !selectedGameFilter || selectedGameFilter.includes(p.opponent)).map((p, i) => (
                    <div key={i} className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
                          <div>
@@ -421,18 +517,87 @@ export default function Home() {
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                         {p.evaluations.map(ev => (
-                            <div key={ev.category} style={{ background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column' }}>
-                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 }}>{ev.category}</span>
-                                  <span style={{ fontSize: '0.7rem', color: ev.color, fontWeight: 800, padding: '2px 6px', background: `${ev.color}20`, borderRadius: '4px' }}>
-                                     {ev.call}
-                                  </span>
+                         {p.evaluations.map(ev => {
+                            const flipKey = `${p.playerId}-${ev.category}`;
+                            const isFlipped = flippedCards[flipKey];
+                            const loadedH2H = h2hData[p.playerId]?.data || riskResults[p.playerId]?.h2hAverages;
+                            const h2hLoading = h2hData[p.playerId]?.loading && !loadedH2H;
+                            
+                            const catLower = ev.category === '3PM' ? 'fg3m' : ev.category.toLowerCase();
+                            const h2hVal = loadedH2H ? loadedH2H[catLower] : null;
+
+                            const lastGameValKey = `lastGame${catLower.charAt(0).toUpperCase() + catLower.slice(1)}`;
+                            const lastGameVal = loadedH2H ? loadedH2H[lastGameValKey] : null;
+
+                            return (
+                               <div key={ev.category} 
+                                    onClick={() => handleCardFlip(p.playerId, p.opponentAbbr, ev.category)}
+                                    style={{ 
+                                       perspective: '1000px', 
+                                       cursor: 'pointer', 
+                                       height: '90px' 
+                                    }}>
+                                  <div style={{
+                                     position: 'relative',
+                                     width: '100%',
+                                     height: '100%',
+                                     transition: 'transform 0.6s',
+                                     transformStyle: 'preserve-3d',
+                                     transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
+                                  }}>
+                                     {/* FRONT OF CARD */}
+                                     <div style={{
+                                        position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
+                                        background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', 
+                                        border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column'
+                                     }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 }}>{ev.category}</span>
+                                           <span style={{ fontSize: '0.7rem', color: ev.color, fontWeight: 800, padding: '2px 6px', background: `${ev.color}20`, borderRadius: '4px' }}>
+                                              {ev.call}
+                                           </span>
+                                        </div>
+                                        <div style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '2px' }}>{ev.avg}</div>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
+                                     </div>
+
+                                     {/* BACK OF CARD */}
+                                     <div style={{
+                                        position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
+                                        transform: 'rotateY(180deg)', background: 'rgba(0,0,0,0.5)',
+                                        borderRadius: '8px', border: '1px solid var(--accent)', display: 'flex', overflow: 'hidden'
+                                     }}>
+                                        <div style={{ flex: 1, borderRight: '1px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '6px' }}>
+                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, marginBottom: '2px', textAlign: 'center', lineHeight: '1.2' }}>vs <br/>{p.opponentAbbr}</span>
+                                           {!loadedH2H && h2hLoading ? (
+                                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>...</div>
+                                           ) : (
+                                              <>
+                                                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'white', lineHeight: '1.2' }}>
+                                                    {h2hVal}
+                                                 </div>
+                                                 {loadedH2H && <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '0px' }}>{loadedH2H.games} Gms</div>}
+                                              </>
+                                           )}
+                                        </div>
+                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '6px' }}>
+                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, marginBottom: '2px', textAlign: 'center', lineHeight: '1.2' }}>Last<br/>Game</span>
+                                           {!loadedH2H && h2hLoading ? (
+                                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>...</div>
+                                           ) : (
+                                              <>
+                                                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f59e0b', lineHeight: '1.2' }}>
+                                                    {lastGameVal}
+                                                 </div>
+                                                 {loadedH2H && <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '0px' }}>vs {loadedH2H.lastGameOpp}</div>}
+                                              </>
+                                           )}
+                                        </div>
+                                     </div>
+                                  </div>
                                </div>
-                               <div style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '2px' }}>{ev.avg}</div>
-                               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
-                            </div>
-                         ))}
+                            );
+                         })}
                       </div>
 
                       {/* DEEP DIVE ENGINES ROW */}
@@ -463,7 +628,7 @@ export default function Home() {
                          {/* CONTEXTUAL RISK ENGINE SECTION */}
                          <div style={{ flex: 1, background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--panel-border)' }}>
                             {!riskResults[p.playerId]?.loaded && !riskResults[p.playerId]?.loading && (
-                               <button onClick={() => runRiskEngine(p.playerId, p.opponent, p.isHome)} style={{ width: '100%', background: 'transparent', border: '1px dashed #f59e0b', color: '#f59e0b', padding: '8px', borderRadius: '6px', cursor: 'pointer', transition: '0.2s', fontSize: '0.8rem' }}>
+                               <button onClick={() => runRiskEngine(p.playerId, p.opponent, p.opponentAbbr, p.isHome)} style={{ width: '100%', background: 'transparent', border: '1px dashed #f59e0b', color: '#f59e0b', padding: '8px', borderRadius: '6px', cursor: 'pointer', transition: '0.2s', fontSize: '0.8rem' }}>
                                   <AlertTriangle size={14} style={{display:'inline', verticalAlign:'middle', marginRight:'4px'}}/> Context Risk
                                </button>
                             )}
@@ -475,9 +640,22 @@ export default function Home() {
                                      <strong style={{color: 'white', fontSize: '0.8rem'}}>Overall Status</strong>
                                      <span style={{ color: riskResults[p.playerId].riskColor, fontWeight: 800, fontSize: '0.7rem' }}>{riskResults[p.playerId].finalRisk}</span>
                                   </div>
-                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '8px' }}>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '6px' }}>
                                      PTS Rhythm: <strong style={{color: 'white'}}>{riskResults[p.playerId].rhythmArray}</strong>
                                   </div>
+                                  {riskResults[p.playerId].h2hAverages ? (
+                                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '8px', background: 'rgba(255,255,255,0.05)', padding: '6px', borderRadius: '4px' }}>
+                                         <strong style={{color: 'white', display: 'block', marginBottom: '4px'}}>Past Stats vs {p.opponent} ({riskResults[p.playerId].h2hAverages.games} Games):</strong>
+                                         PTS: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.pts}</span> | 
+                                         REB: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.reb}</span> | 
+                                         AST: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.ast}</span> | 
+                                         3PM: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.fg3m}</span>
+                                      </div>
+                                  ) : (
+                                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '8px' }}>
+                                         No previous matchups vs {p.opponent}.
+                                      </div>
+                                  )}
                                   <ul style={{ paddingLeft: '14px', fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
                                      {riskResults[p.playerId].highlights.map((h, idx) => <li key={`h-${idx}`} style={{color: '#4ade80', marginBottom: '4px'}}>{h}</li>)}
                                      {riskResults[p.playerId].warnings.map((w, idx) => <li key={`w-${idx}`} style={{color: '#f87171', marginBottom: '4px'}}>{w}</li>)}

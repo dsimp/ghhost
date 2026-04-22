@@ -23,16 +23,44 @@ export async function GET(request) {
   const gameDate = `${year}-${month}-${day}`; 
 
   try {
-    const scoreboardData = await fetchNBA('scoreboardv2', {
-      GameDate: gameDate,
-      DayOffset: '0',
-      LeagueID: '00'
-    });
+    const [scoreboardData, teamDefenseData, playerStatsData] = await Promise.all([
+      fetchNBA('scoreboardv3', {
+        GameDate: gameDate,
+        LeagueID: '00'
+      }),
+      fetchNBA('leaguedashteamstats', {
+        MeasureType: 'Opponent',
+        PerMode: 'PerGame',
+        Season: season,
+        SeasonType: 'Regular Season',
+        LeagueID: '00',
+        LastNGames: '0',
+        Month: '0',
+        OpponentTeamID: '0',
+        PORound: '0',
+        PaceAdjust: 'N',
+        Period: '0',
+        PlusMinus: 'N',
+        Rank: 'N'
+      }),
+      fetchNBA('leaguedashplayerstats', {
+        MeasureType: 'Base',
+        PerMode: 'PerGame',
+        Season: season,
+        SeasonType: 'Regular Season',
+        LeagueID: '00',
+        LastNGames: '0',
+        Month: '0',
+        OpponentTeamID: '0',
+        PORound: '0',
+        PaceAdjust: 'N',
+        Period: '0',
+        PlusMinus: 'N',
+        Rank: 'N'
+      })
+    ]);
     
-    const gamesRowSet = scoreboardData.resultSets[0].rowSet;
-    const gameHeaders = scoreboardData.resultSets[0].headers;
-    const homeTeamIdIdx = gameHeaders.indexOf('HOME_TEAM_ID');
-    const visitorTeamIdIdx = gameHeaders.indexOf('VISITOR_TEAM_ID');
+    const gamesRowSet = scoreboardData.scoreboard?.games || [];
     
     if (!gamesRowSet || gamesRowSet.length === 0) {
       return NextResponse.json({ matchups: [], players: [], message: 'No games scheduled for today.' });
@@ -41,22 +69,6 @@ export async function GET(request) {
     const todayMatchups = [];
     const playingTeamIds = new Set();
     const teamIdToOppositeName = {}; 
-
-    const teamDefenseData = await fetchNBA('leaguedashteamstats', {
-      MeasureType: 'Opponent',
-      PerMode: 'PerGame',
-      Season: season,
-      SeasonType: 'Regular Season',
-      LeagueID: '00',
-      LastNGames: '0',
-      Month: '0',
-      OpponentTeamID: '0',
-      PORound: '0',
-      PaceAdjust: 'N',
-      Period: '0',
-      PlusMinus: 'N',
-      Rank: 'N'
-    });
 
     const defHeaders = teamDefenseData.resultSets[0].headers;
     const defRows = teamDefenseData.resultSets[0].rowSet;
@@ -67,8 +79,8 @@ export async function GET(request) {
     });
 
     gamesRowSet.forEach(g => {
-      const homeId = g[homeTeamIdIdx];
-      const awayId = g[visitorTeamIdIdx];
+      const homeId = g.homeTeam.teamId;
+      const awayId = g.awayTeam.teamId;
       playingTeamIds.add(String(homeId));
       playingTeamIds.add(String(awayId));
       
@@ -78,7 +90,10 @@ export async function GET(request) {
       teamIdToOppositeName[homeId] = awayName;
       teamIdToOppositeName[awayId] = homeName;
       
-      todayMatchups.push({ home: homeName, away: awayName });
+      const gameKey = `${awayName} @ ${homeName}`;
+      if (!todayMatchups.some(m => `${m.away} @ ${m.home}` === gameKey)) {
+        todayMatchups.push({ home: homeName, away: awayName });
+      }
     });
 
     const rankMaps = {
@@ -91,24 +106,19 @@ export async function GET(request) {
        '3PM': rankTeams(defRows, defHeaders.indexOf('OPP_FG3M'), true)
     };
 
-    const playerStatsData = await fetchNBA('leaguedashplayerstats', {
-      MeasureType: 'Base',
-      PerMode: 'PerGame',
-      Season: season,
-      SeasonType: 'Regular Season',
-      LeagueID: '00',
-      LastNGames: '0',
-      Month: '0',
-      OpponentTeamID: '0',
-      PORound: '0',
-      PaceAdjust: 'N',
-      Period: '0',
-      PlusMinus: 'N',
-      Rank: 'N'
+    const pHeaders = playerStatsData.resultSets[0].headers;
+    const pRowsRaw = playerStatsData.resultSets[0].rowSet;
+    
+    // Build a map of Team Name -> Team Abbreviation from the player stats data
+    const teamNameToAbbr = {};
+    pRowsRaw.forEach(r => {
+       const tId = r[pHeaders.indexOf('TEAM_ID')];
+       const tName = teamIdToName[tId];
+       const tAbbr = r[pHeaders.indexOf('TEAM_ABBREVIATION')];
+       if (tName) teamNameToAbbr[tName] = tAbbr;
     });
 
-    const pHeaders = playerStatsData.resultSets[0].headers;
-    const pRows = playerStatsData.resultSets[0].rowSet.filter(r => playingTeamIds.has(String(r[pHeaders.indexOf('TEAM_ID')])) && r[pHeaders.indexOf('MIN')] > 22);
+    const pRows = pRowsRaw.filter(r => playingTeamIds.has(String(r[pHeaders.indexOf('TEAM_ID')])) && r[pHeaders.indexOf('MIN')] > 22);
 
     const playerPredictions = [];
 
@@ -118,14 +128,16 @@ export async function GET(request) {
        const teamId = player[pHeaders.indexOf('TEAM_ID')];
        const teamAbbr = player[pHeaders.indexOf('TEAM_ABBREVIATION')];
        const oppName = teamIdToOppositeName[teamId];
+       const opponentAbbr = teamNameToAbbr[oppName] || oppName.substring(0, 3).toUpperCase();
+
        // Find oppId using the mapping
        const oppId = Object.keys(teamIdToOppositeName).find(k => k !== String(teamId) && teamIdToOppositeName[k] === oppName && teamIdToOppositeName[String(teamId)] === oppName);
        // Wait, a more direct mapping: we know the matchup games.
        // The easier way:
        let opponentIdMatch = "0";
        gamesRowSet.forEach(g => {
-          if (String(g[homeTeamIdIdx]) === String(teamId)) opponentIdMatch = String(g[visitorTeamIdIdx]);
-          if (String(g[visitorTeamIdIdx]) === String(teamId)) opponentIdMatch = String(g[homeTeamIdIdx]);
+          if (String(g.homeTeam.teamId) === String(teamId)) opponentIdMatch = String(g.awayTeam.teamId);
+          if (String(g.awayTeam.teamId) === String(teamId)) opponentIdMatch = String(g.homeTeam.teamId);
        });
 
        const stats = {
@@ -169,6 +181,7 @@ export async function GET(request) {
           playerId: playerId,
           team: teamAbbr,
           opponent: oppName,
+          opponentAbbr: opponentAbbr,
           opponentId: opponentIdMatch,
           isHome: isHomePlayer,
           evaluations: statEvaluations

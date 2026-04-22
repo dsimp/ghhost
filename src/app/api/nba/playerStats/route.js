@@ -18,11 +18,10 @@ export async function GET(request) {
     });
 
     // Fetch game logs for the target season (to allow Player vs Team filtering)
-    const gameLogData = await fetchNBA('playergamelog', {
-      PlayerID: playerId,
-      Season: season,
-      SeasonType: 'Regular Season'
-    });
+    const [regLogRes, playoffLogRes] = await Promise.allSettled([
+      fetchNBA('playergamelog', { PlayerID: playerId, Season: season, SeasonType: 'Regular Season' }),
+      fetchNBA('playergamelog', { PlayerID: playerId, Season: season, SeasonType: 'Playoffs' })
+    ]);
 
     // Parse profile
     const seasonTotals = profileData.resultSets.find(r => r.name === 'SeasonTotalsRegularSeason');
@@ -43,10 +42,27 @@ export async function GET(request) {
       };
     }
 
-    // Parse game logs
-    const logSet = gameLogData.resultSets[0];
-    const logHeaders = logSet.headers;
-    const games = logSet.rowSet.map(row => {
+    let combinedRows = [];
+    let logHeaders = null;
+
+    if (regLogRes.status === 'fulfilled' && regLogRes.value.resultSets?.length > 0) {
+       const logSet = regLogRes.value.resultSets[0];
+       logHeaders = logSet.headers;
+       combinedRows = combinedRows.concat(logSet.rowSet);
+    }
+    if (playoffLogRes.status === 'fulfilled' && playoffLogRes.value.resultSets?.length > 0) {
+       const logSet = playoffLogRes.value.resultSets[0];
+       if (!logHeaders) logHeaders = logSet.headers;
+       combinedRows = combinedRows.concat(logSet.rowSet);
+    }
+
+    // Sort combined by GAME_DATE descending
+    if (logHeaders) {
+       const dateIdx = logHeaders.indexOf('GAME_DATE');
+       combinedRows.sort((a, b) => new Date(b[dateIdx]) - new Date(a[dateIdx]));
+    }
+
+    const games = combinedRows.map(row => {
       let matchup = row[logHeaders.indexOf('MATCHUP')];
       // MATCHUP looks like "LAL vs. BOS" or "LAL @ BOS".
       const isHome = matchup.includes('vs.');
@@ -68,6 +84,7 @@ export async function GET(request) {
         fgm: row[logHeaders.indexOf('FGM')],
         fga: row[logHeaders.indexOf('FGA')],
         fg_pct: row[logHeaders.indexOf('FG_PCT')],
+        fg3m: row[logHeaders.indexOf('FG3M')],
       };
     });
 
