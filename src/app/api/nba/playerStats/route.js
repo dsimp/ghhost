@@ -11,35 +11,34 @@ export async function GET(request) {
   }
 
   try {
-    // Fetch generic profile (season averages)
-    const profileData = await fetchNBA('playerprofilev2', {
-      PlayerID: playerId,
-      PerMode: 'PerGame'
-    });
-
-    // Fetch game logs for the target season (to allow Player vs Team filtering)
-    const [regLogRes, playoffLogRes] = await Promise.allSettled([
+    // Fetch generic profile and game logs concurrently to eliminate waterfall delays
+    const [profileRes, regLogRes, playoffLogRes] = await Promise.allSettled([
+      fetchNBA('playerprofilev2', { PlayerID: playerId, PerMode: 'PerGame' }),
       fetchNBA('playergamelog', { PlayerID: playerId, Season: season, SeasonType: 'Regular Season' }),
       fetchNBA('playergamelog', { PlayerID: playerId, Season: season, SeasonType: 'Playoffs' })
     ]);
 
+    const profileData = profileRes.status === 'fulfilled' ? profileRes.value : null;
+
     // Parse profile
-    const seasonTotals = profileData.resultSets.find(r => r.name === 'SeasonTotalsRegularSeason');
     let currentSeasonStats = null;
-    if (seasonTotals && seasonTotals.rowSet.length > 0) {
-      const headers = seasonTotals.headers;
-      // Get the last row (which is usually the most recent or current season if they played)
-      const row = seasonTotals.rowSet[seasonTotals.rowSet.length - 1];
-      currentSeasonStats = {
-        pts: row[headers.indexOf('PTS')],
-        reb: row[headers.indexOf('REB')],
-        ast: row[headers.indexOf('AST')],
-        stl: row[headers.indexOf('STL')],
-        blk: row[headers.indexOf('BLK')],
-        tov: row[headers.indexOf('TOV')],
-        fg_pct: row[headers.indexOf('FG_PCT')],
-        fg3_pct: row[headers.indexOf('FG3_PCT')]
-      };
+    if (profileData && profileData.resultSets) {
+       const seasonTotals = profileData.resultSets.find(r => r.name === 'SeasonTotalsRegularSeason');
+       if (seasonTotals && seasonTotals.rowSet.length > 0) {
+         const headers = seasonTotals.headers;
+         // Get the last row (which is usually the most recent or current season if they played)
+         const row = seasonTotals.rowSet[seasonTotals.rowSet.length - 1];
+         currentSeasonStats = {
+           pts: row[headers.indexOf('PTS')],
+           reb: row[headers.indexOf('REB')],
+           ast: row[headers.indexOf('AST')],
+           stl: row[headers.indexOf('STL')],
+           blk: row[headers.indexOf('BLK')],
+           tov: row[headers.indexOf('TOV')],
+           fg_pct: row[headers.indexOf('FG_PCT')],
+           fg3_pct: row[headers.indexOf('FG3_PCT')]
+         };
+       }
     }
 
     let combinedRows = [];

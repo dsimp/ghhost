@@ -1,686 +1,331 @@
 "use client";
-
-import React, { useState, useEffect, useMemo } from 'react';
-import CourtMap from '@/components/CourtMap';
-import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle } from 'lucide-react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { usePro } from '@/context/ProContext';
+import TransparencyWindow from '@/components/TransparencyWindow';
 
 export default function Home() {
-  const [players, setPlayers] = useState([]);
-  const [teams, setTeams] = useState([]);
-  
-  const [searchTerm, setSearchTerm] = useState('');
-  const [mode, setMode] = useState('PLAYER'); 
-  
-  const [selectedEntity, setSelectedEntity] = useState(null); 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  
-  const [playerStats, setPlayerStats] = useState(null);
-  const [shotData, setShotData] = useState([]);
-  
-  const [opponentFilter, setOpponentFilter] = useState('');
-  const [activeZone, setActiveZone] = useState(null);
-
-  const [predictionsData, setPredictionsData] = useState(null);
-  const [predictorLoading, setPredictorLoading] = useState(false);
-  const [selectedGameFilter, setSelectedGameFilter] = useState('');
-  
-  const [targetStat, setTargetStat] = useState('PTS'); 
-
-  const [spatialResults, setSpatialResults] = useState({});
-  const [riskResults, setRiskResults] = useState({});
-
-  const [flippedCards, setFlippedCards] = useState({});
-  const [h2hData, setH2hData] = useState({});
-
+  const [loading, setLoading] = useState(true);
+  const [topOvers, setTopOvers] = useState([]);
+  const [topUnders, setTopUnders] = useState([]);
+  const [activeTab, setActiveTab] = useState('OVERS'); // 'OVERS' or 'UNDERS'
+  const [showHistory, setShowHistory] = useState(false);
+  const { isPro } = usePro();
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/nba/players').then(res => res.json()),
-      fetch('/api/nba/teams').then(res => res.json())
-    ]).then(([playersData, teamsData]) => {
-      if (!playersData.error) setPlayers(playersData);
-      if (!teamsData.error) setTeams(teamsData);
-    }).catch(err => console.error("Initial load err", err));
+    fetch('/api/nba/predictToday')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.players) { setLoading(false); return; }
+        
+        let allEvals = [];
+        data.players.forEach(p => {
+           p.evaluations.forEach(ev => {
+              allEvals.push({ 
+                 ...ev, 
+                 player: p.player, 
+                 team: p.team, 
+                 opponent: p.opponentAbbr, 
+                 isHome: p.isHome 
+              });
+           });
+        });
+        
+        const strongOvers = allEvals
+            .filter(e => e.call === 'STRONG OVER')
+            .sort((a,b) => b.confidence !== a.confidence ? b.confidence - a.confidence : a.rank - b.rank);
+            
+        const strongUnders = allEvals
+            .filter(e => e.call === 'STRONG UNDER')
+            .sort((a,b) => b.confidence !== a.confidence ? b.confidence - a.confidence : b.rank - a.rank);
+
+        setTopOvers(strongOvers.slice(0, 5));
+        setTopUnders(strongUnders.slice(0, 5));
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoading(false);
+      });
   }, []);
 
-  const runRiskEngine = async (playerId, opponentName, opponentAbbr, isHomeGame) => {
-    setRiskResults(prev => ({...prev, [playerId]: { loading: true }}));
-    try {
-      const statsRes = await fetch(`/api/nba/playerStats?playerId=${playerId}`);
-      const stats = await statsRes.json();
-      if(stats.error || !stats.gameLogs) throw new Error("Failed fetching context logs");
+  const renderPredictionCard = (pred, index) => {
+     const isOver = activeTab === 'OVERS';
+     const baseColor = isOver ? '#22c55e' : '#ef4444';
+     const glowColor = isOver ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+     
+     return (
+        <div key={`${pred.player}-${pred.category}-${index}`} className="swipe-card" style={{
+           background: 'rgba(20, 20, 25, 0.6)',
+           backdropFilter: 'blur(12px)',
+           border: `1px solid rgba(255,255,255,0.05)`,
+           borderTop: `3px solid ${baseColor}`,
+           borderRadius: '16px',
+           padding: '16px',
+           display: 'flex',
+           flexDirection: 'column',
+           justifyContent: 'space-between',
+           boxShadow: `0 8px 32px ${glowColor}`,
+           flex: '0 0 85%', /* Takes up 85% of the mobile screen so the next card peeks out */
+           scrollSnapAlign: 'center',
+           height: '100%',
+        }}>
+           
+           {/* Top Info */}
+           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                 <span style={{ fontWeight: '800', fontSize: '1.2rem', color: 'white', letterSpacing: '-0.02em' }}>{pred.player}</span>
+                 <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: '600' }}>
+                    {pred.team} {pred.isHome ? 'vs' : '@'} {pred.opponent}
+                 </span>
+              </div>
+              <div style={{ 
+                 background: `linear-gradient(135deg, ${baseColor}, ${isOver ? '#15803d' : '#b91c1c'})`, 
+                 color: 'white', 
+                 padding: '4px 10px', 
+                 borderRadius: '20px', 
+                 fontSize: '0.75rem', 
+                 fontWeight: 'bold',
+                 boxShadow: `0 2px 10px ${glowColor}`
+              }}>
+                 {pred.confidence}%
+              </div>
+           </div>
+           
+           {/* Big Stat Display (Normal Season Average) */}
+           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '15px 0', background: 'rgba(0,0,0,0.2)', borderRadius: '12px', padding: '15px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                 <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Season Average</span>
+                 <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                    <span style={{ fontSize: '2.8rem', fontWeight: 900, color: 'white', lineHeight: '1' }}>{pred.avg}</span>
+                    <span style={{ fontSize: '1rem', fontWeight: '800', color: baseColor }}>{pred.category}</span>
+                 </div>
+              </div>
+           </div>
 
-      const logs = stats.gameLogs;
-      if(logs.length === 0) throw new Error("No tracking game logs available.");
-
-      const recentLogs = logs.slice(0, 5); 
-      const locLogs = logs.filter(l => l.isHome === isHomeGame);
-      const h2hLogs = logs.filter(l => l.opponent && l.opponent.includes(opponentAbbr));
-      
-      const calcAvg = (arr, stat) => arr.length > 0 ? (arr.reduce((acc, l) => acc + l[stat], 0) / arr.length).toFixed(1) : 0;
-      
-      let warnings = [];
-      let highlights = [];
-      let riskScore = 0; 
-      
-      // Analyze variance anomalies across fundamental categories
-      ['pts', 'reb', 'ast', 'fg3m'].forEach(stat => {
-         const catName = stat === 'fg3m' ? '3PM' : stat.toUpperCase();
-         const seasonBase = parseFloat(calcAvg(logs, stat));
-         if (seasonBase < 2) return; 
-         
-         const recentBase = parseFloat(calcAvg(recentLogs, stat));
-         const locBase = parseFloat(calcAvg(locLogs, stat));
-         
-         if (recentBase < seasonBase * 0.8) {
-            warnings.push(`Recent Slump: Averaging only ${recentBase} ${catName} over Last 5 (Season: ${seasonBase}).`);
-            riskScore++;
-         } else if (recentBase > seasonBase * 1.25) {
-            highlights.push(`Hot Streak: Surging with ${recentBase} ${catName} over Last 5.`);
-         }
-
-         if (locLogs.length > 0 && locBase < seasonBase * 0.8) {
-            warnings.push(`Travel Impact: Averages drop to ${locBase} ${catName} in ${isHomeGame ? 'Home' : 'Away'} games.`);
-            riskScore++;
-         }
-
-         if (h2hLogs.length > 0) {
-            const h2hBase = parseFloat(calcAvg(h2hLogs, stat));
-            if (h2hBase < seasonBase * 0.75) {
-               warnings.push(`Matchup Blocked: Only averaged ${h2hBase} ${catName} vs ${opponentName} earlier this season.`);
-               riskScore += 2; // high weight
-            }
-         }
-      });
-      
-      // Remove generic clutter if there are too many matching logs
-      warnings = [...new Set(warnings)];
-      highlights = [...new Set(highlights)];
-
-      let finalRisk = 'LOW RISK';
-      let riskColor = '#22c55e';
-      if (riskScore >= 4) { finalRisk = 'EXTREME RISK'; riskColor = '#ef4444'; }
-      else if (riskScore >= 2) { finalRisk = 'MODERATE RISK'; riskColor = '#f59e0b'; }
-
-      // Generate up/down rhythm array 
-      let rhythmArray = "N/A";
-      if (recentLogs.length > 0) {
-        // Reverse so it reads oldest -> newest of the last 5
-        rhythmArray = [...recentLogs].reverse().map(l => l.pts).join(' → ');
-      }
-
-      const lastGame = logs.length > 0 ? logs[0] : null;
-
-      let h2hAverages = null;
-      if (h2hLogs.length > 0) {
-         h2hAverages = {
-            pts: calcAvg(h2hLogs, 'pts'),
-            reb: calcAvg(h2hLogs, 'reb'),
-            ast: calcAvg(h2hLogs, 'ast'),
-            stl: calcAvg(h2hLogs, 'stl'),
-            blk: calcAvg(h2hLogs, 'blk'),
-            fg3m: calcAvg(h2hLogs, 'fg3m'),
-            games: h2hLogs.length
-         };
-      }
-      
-      if (lastGame) {
-         if (!h2hAverages) h2hAverages = { pts: 'N/A', reb: 'N/A', ast: 'N/A', stl: 'N/A', blk: 'N/A', fg3m: 'N/A', games: 0 };
-         h2hAverages.lastGamePts = lastGame.pts;
-         h2hAverages.lastGameReb = lastGame.reb;
-         h2hAverages.lastGameAst = lastGame.ast;
-         h2hAverages.lastGameStl = lastGame.stl;
-         h2hAverages.lastGameBlk = lastGame.blk;
-         h2hAverages.lastGameFg3m = lastGame.fg3m;
-         h2hAverages.lastGameOpp = lastGame.opponent;
-      }
-
-      setRiskResults(prev => ({...prev, [playerId]: {
-         loaded: true, loading: false, warnings, highlights, finalRisk, riskColor, rhythmArray, h2hAverages
-      }}));
-    } catch (e) {
-      setRiskResults(prev => ({...prev, [playerId]: { loading: false, error: e.message }}));
-    }
+           {/* Context Badges (Dense Mobile Layout) */}
+           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div className="context-badge" style={{ background: 'rgba(255,255,255,0.03)', color: 'var(--text-muted)' }}>
+                 <span style={{ fontSize: '1rem' }}>🛡️</span> {pred.oppDesc}
+              </div>
+              {pred.streakDesc && (
+                 <div className="context-badge" style={{ background: pred.streakDesc.includes('⚠️') ? 'rgba(245, 158, 11, 0.1)' : glowColor, color: pred.streakDesc.includes('⚠️') ? '#f59e0b' : baseColor }}>
+                    <span style={{ fontSize: '1rem' }}>{pred.streakDesc.includes('🔥') ? '🔥' : pred.streakDesc.includes('🧊') ? '🧊' : '⚠️'}</span> 
+                    {pred.streakDesc.replace(/[🔥🧊⚠️]/g, '').trim()}
+                 </div>
+              )}
+              {pred.spatialDesc && (
+                 <div className="context-badge" style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#a78bfa' }}>
+                    <span style={{ fontSize: '1rem' }}>{pred.spatialDesc.includes('🎯') ? '🎯' : '🛑'}</span> 
+                    {pred.spatialDesc.replace(/[🎯🛑]/g, '').trim()}
+                 </div>
+              )}
+              {/* Ghhost Prediction Pinpoint Badge at the bottom in Pink */}
+              {pred.memoryDesc && (
+                 <div className="context-badge" style={{ background: 'rgba(236, 72, 153, 0.1)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#f472b6' }}>
+                    <span style={{ fontSize: '1rem' }}>👻</span> 
+                    {pred.memoryDesc.replace(/[👻]/g, '').trim()}
+                 </div>
+              )}
+           </div>
+        </div>
+     );
   };
 
-  const handleCardFlip = async (playerId, opponentAbbr, categoryKey) => {
-    const flipKey = `${playerId}-${categoryKey}`;
-    setFlippedCards(prev => ({ ...prev, [flipKey]: !prev[flipKey] }));
-
-    if (h2hData[playerId] || riskResults[playerId]?.h2hAverages) return;
-
-    setH2hData(prev => ({...prev, [playerId]: { loading: true }}));
-    try {
-      const statsRes = await fetch(`/api/nba/playerStats?playerId=${playerId}`);
-      const stats = await statsRes.json();
-      if(stats.error || !stats.gameLogs) throw new Error("Failed");
-      const h2hLogs = stats.gameLogs.filter(l => l.opponent && l.opponent.includes(opponentAbbr));
-      const lastGame = stats.gameLogs.length > 0 ? stats.gameLogs[0] : null;
-      const calcAvg = (arr, stat) => arr.length > 0 ? (arr.reduce((acc, l) => acc + l[stat], 0) / arr.length).toFixed(1) : 'N/A';
-      
-      const avgs = {
-        pts: calcAvg(h2hLogs, 'pts'),
-        reb: calcAvg(h2hLogs, 'reb'),
-        ast: calcAvg(h2hLogs, 'ast'),
-        stl: calcAvg(h2hLogs, 'stl'),
-        blk: calcAvg(h2hLogs, 'blk'),
-        fg3m: calcAvg(h2hLogs, 'fg3m'),
-        games: h2hLogs.length,
-        lastGamePts: lastGame ? lastGame.pts : '-',
-        lastGameReb: lastGame ? lastGame.reb : '-',
-        lastGameAst: lastGame ? lastGame.ast : '-',
-        lastGameStl: lastGame ? lastGame.stl : '-',
-        lastGameBlk: lastGame ? lastGame.blk : '-',
-        lastGameFg3m: lastGame ? lastGame.fg3m : '-',
-        lastGameOpp: lastGame ? lastGame.opponent : '-'
-      };
-
-      setH2hData(prev => ({...prev, [playerId]: { loading: false, data: avgs }}));
-    } catch (e) {
-      setH2hData(prev => ({...prev, [playerId]: { loading: false, error: "Error" }}));
-    }
-  };
-
-  const runSpatialEngine = async (playerId, opponentId, playerName) => {
-     setSpatialResults(prev => ({...prev, [playerId]: { loading: true } }));
-     try {
-       const [playerRes, defRes] = await Promise.all([
-          fetch(`/api/nba/shotChart?playerId=${playerId}`),
-          fetch(`/api/nba/shotChart?teamId=${opponentId}&defenseMode=true`)
-       ]);
-       const pShots = await playerRes.json();
-       const dShots = await defRes.json();
-       
-       if (pShots.error || dShots.error) throw new Error("Failed fetching spatial frames");
-       
-       // Calc Hotspot
-       const zoneCounts = {};
-       pShots.forEach(s => {
-          if(!s.shot_made) return; 
-          if (!zoneCounts[s.shot_zone_basic]) zoneCounts[s.shot_zone_basic] = 0;
-          zoneCounts[s.shot_zone_basic]++;
-       });
-       
-       let hotZone = null; let max = 0;
-       Object.keys(zoneCounts).forEach(z => {
-          if (zoneCounts[z] > max) { max = zoneCounts[z]; hotZone = z; }
-       });
-       if (!hotZone) throw new Error("Not enough shot data");
-       
-       // Compare performance
-       const defInZone = dShots.filter(s => s.shot_zone_basic === hotZone);
-       const dPct = defInZone.length > 0 ? (defInZone.filter(s => s.shot_made).length / defInZone.length * 100).toFixed(1) : 0;
-       
-       const pInZone = pShots.filter(s => s.shot_zone_basic === hotZone);
-       const pPct = pInZone.length > 0 ? (pInZone.filter(s => s.shot_made).length / pInZone.length * 100).toFixed(1) : 0;
-       
-       let call = 'NEUTRAL MATCHUP';
-       let color = 'white';
-       
-       let is3PT = hotZone.includes('3');
-       let poorDefThreshold = is3PT ? 38 : 60; 
-       let eliteDefThreshold = is3PT ? 33 : 52; 
-
-       if (dPct >= poorDefThreshold) { call = 'SPATIAL OVER'; color = '#22c55e'; }
-       else if (dPct <= eliteDefThreshold) { call = 'SPATIAL UNDER'; color = '#ef4444'; }
-       else { call = 'SPATIAL NEUTRAL'; color = '#f59e0b'; }
-       
-       setSpatialResults(prev => ({...prev, [playerId]: {
-          loaded: true, loading: false, hotZone, pPct, dPct, call, color
-       }}));
-     } catch (e) {
-       setSpatialResults(prev => ({...prev, [playerId]: { loading: false, error: e.message } }));
-     }
-  };
-
-  const handleSelect = async (entity) => {
-    setSelectedEntity(entity);
-    setSearchTerm(entity.name);
-    setOpponentFilter(''); 
-    setActiveZone(null);
-    setLoading(true);
-    setError('');
-
-    try {
-      if (mode === 'PLAYER') {
-        const [statsRes, shotRes] = await Promise.all([
-          fetch(`/api/nba/playerStats?playerId=${entity.id}`),
-          fetch(`/api/nba/shotChart?playerId=${entity.id}`)
-        ]);
-        const stats = await statsRes.json();
-        const shots = await shotRes.json();
-        if (stats.error) throw new Error(stats.error);
-        
-        setPlayerStats(stats);
-        setShotData(shots);
-      } else if (mode === 'TEAM_DEF') {
-        const shotRes = await fetch(`/api/nba/shotChart?teamId=${entity.id}&defenseMode=true`);
-        const shots = await shotRes.json();
-        if (shots.error) throw new Error(shots.error);
-        
-        setPlayerStats(null);
-        setShotData(shots);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to fetch analytics.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadPredictor = async () => {
-     setPredictorLoading(true);
-     setError('');
-     try {
-       const res = await fetch('/api/nba/predictToday');
-       const data = await res.json();
-       if(data.error) throw new Error(data.error);
-       setPredictionsData(data);
-     } catch (err) {
-       setError(err.message || "Failed predicting today's slate");
-     } finally {
-       setPredictorLoading(false);
-     }
-  };
-
-  const onModeToggle = (newMode) => {
-    setMode(newMode);
-    setSelectedEntity(null);
-    setSearchTerm('');
-    setShotData([]);
-    setPlayerStats(null);
-    setActiveZone(null);
-    
-    setSelectedGameFilter('');
-    if (newMode === 'PREDICTOR' && !predictionsData) {
-       loadPredictor();
-    }
-  };
-
-  const filteredShots = useMemo(() => {
-    if (!shotData) return [];
-    let filtered = shotData;
-    if (mode === 'PLAYER' && opponentFilter) {
-      filtered = filtered.filter(s => s.opponent === opponentFilter);
-    }
-    if (activeZone) {
-      filtered = filtered.filter(s => s.shot_zone_basic === activeZone);
-    }
-    return filtered;
-  }, [shotData, opponentFilter, activeZone, mode]);
-
-  const filteredStats = useMemo(() => {
-    if (!playerStats?.gameLogs) return null;
-    let logs = playerStats.gameLogs;
-    if (opponentFilter) {
-      logs = logs.filter(log => log.opponent === opponentFilter);
-    }
-    if (logs.length === 0) return null;
-    const sum = logs.reduce((acc, log) => {
-       acc.PTS += log.pts; acc.REB += log.reb; acc.AST += log.ast;
-       acc.STL += log.stl; acc.TOV += log.tov; acc.BLK += log.blk; acc['3PM'] += log.fg3m;
-       return acc;
-    }, { PTS: 0, REB: 0, AST: 0, STL: 0, TOV: 0, BLK: 0, '3PM': 0 });
-
-    const games = logs.length;
-    return {
-       games,
-       PTS: (sum.PTS / games).toFixed(1), REB: (sum.REB / games).toFixed(1),
-       AST: (sum.AST / games).toFixed(1), STL: (sum.STL / games).toFixed(1),
-       BLK: (sum.BLK / games).toFixed(1), TOV: (sum.TOV / games).toFixed(1)
-    };
-  }, [playerStats, opponentFilter]);
-
-  const computedPctStats = useMemo(() => {
-    if (!filteredShots || filteredShots.length === 0) return null;
-    const attempts = filteredShots.length;
-    const makes = filteredShots.filter(s => s.shot_made).length;
-    const pct = ((makes / attempts) * 100).toFixed(1);
-    return { attempts, makes, pct };
-  }, [filteredShots]);
-
-  const activeSearchList = mode === 'PLAYER' ? players : teams;
+  // FREEMIUM LOCK: Slice list to 2 items if not Pro
+  const fullList = activeTab === 'OVERS' ? topOvers : topUnders;
+  const currentList = isPro ? fullList : fullList.slice(0, 2);
 
   return (
-    <main className="main-container">
-      <header className="header">
-        <h1>{mode === 'PREDICTOR' ? 'Daily Predictor Engine' : (mode === 'PLAYER' ? 'Player Predictive Engine' : 'Team Defense Analytics')}</h1>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '20px', flexWrap: 'wrap' }}>
-          <button onClick={() => onModeToggle('PLAYER')} style={{ padding: '8px 24px', borderRadius: '999px', background: mode === 'PLAYER' ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: 'white', cursor: 'pointer', transition: '0.3s' }}>
-            <Crosshair style={{display:'inline', verticalAlign:'middle', marginRight:'8px'}} size={18}/> Player Evaluation
-          </button>
-          <button onClick={() => onModeToggle('TEAM_DEF')} style={{ padding: '8px 24px', borderRadius: '999px', background: mode === 'TEAM_DEF' ? '#8b5cf6' : 'transparent', border: '1px solid #8b5cf6', color: 'white', cursor: 'pointer', transition: '0.3s' }}>
-            <ShieldAlert style={{display:'inline', verticalAlign:'middle', marginRight:'8px'}} size={18}/> Team Defense
-          </button>
-          <button onClick={() => onModeToggle('PREDICTOR')} style={{ padding: '8px 24px', borderRadius: '999px', background: mode === 'PREDICTOR' ? '#f59e0b' : 'transparent', border: '1px solid #f59e0b', color: 'white', cursor: 'pointer', transition: '0.3s' }}>
-            <Zap style={{display:'inline', verticalAlign:'middle', marginRight:'8px'}} size={18}/> Daily Predictor
-          </button>
-        </div>
-      </header>
+    <div style={{ 
+       display: 'flex', 
+       flexDirection: 'column', 
+       minHeight: '100%', 
+       background: 'var(--bg-dark)',
+       position: 'relative'
+    }}>
+      
+      {/* MAIN CONTENT AREA */}
+      <div style={{ 
+         flex: 1, 
+         display: 'flex', 
+         flexDirection: 'column',
+         background: 'linear-gradient(to bottom, rgba(255,255,255,0.02), transparent)',
+         borderTopLeftRadius: '24px',
+         borderTopRightRadius: '24px',
+         borderTop: '1px solid rgba(255,255,255,0.05)'
+      }}>
+         
+         <div style={{ padding: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '15px' }}>
+            <div>
+               <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: 'white' }}>Daily Plays</h2>
+               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Swipe to view</span>
+            </div>
+            <button onClick={() => setShowHistory(!showHistory)} style={{ background: showHistory ? 'rgba(236, 72, 153, 0.1)' : 'transparent', border: '1px solid #f472b6', color: '#f472b6', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+               👻 {showHistory ? 'Hide Brain History' : 'View Brain History'}
+            </button>
+         </div>
 
-      {/* SEARCH SECTION ONLY IN NON-PREDICTOR MODE */}
-      {mode !== 'PREDICTOR' && (
-        <section className="search-section">
-          <div className="search-bar" style={{ position: 'relative' }}>
-            <input type="text" className="input-glass" placeholder={mode === 'PLAYER' ? "Search for a player..." : "Search for a team..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            {searchTerm && (!selectedEntity || selectedEntity.name.toLowerCase() !== searchTerm.toLowerCase()) && (
-               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--panel-bg)', borderRadius: '12px', marginTop: '8px', zIndex: 50, maxHeight: '300px', overflowY: 'auto' }}>
-                  {activeSearchList.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10).map(item => (
-                    <div key={item.id} onClick={() => handleSelect(item)} style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--panel-border)' }}>
-                      {item.name} {mode === 'PLAYER' ? <span style={{color: 'var(--text-muted)'}}>({item.team})</span> : ''}
-                    </div>
-                  ))}
+         {showHistory ? (
+            <div style={{ padding: '0 20px 30px' }}>
+               <TransparencyWindow />
+            </div>
+         ) : (
+            <>
+               {/* SEGMENTED TOGGLE (Overs / Unders) */}
+         <div style={{ margin: '0 20px 20px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', display: 'flex', padding: '4px' }}>
+            <button 
+               onClick={() => setActiveTab('OVERS')}
+               style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  background: activeTab === 'OVERS' ? '#22c55e' : 'transparent',
+                  color: activeTab === 'OVERS' ? 'white' : 'var(--text-muted)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 'bold',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s'
+               }}
+            >
+               🔥 Top Overs
+            </button>
+            <button 
+               onClick={() => setActiveTab('UNDERS')}
+               style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  background: activeTab === 'UNDERS' ? '#ef4444' : 'transparent',
+                  color: activeTab === 'UNDERS' ? 'white' : 'var(--text-muted)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 'bold',
+                  fontSize: '0.9rem',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s'
+               }}
+            >
+               🧊 Top Unders
+            </button>
+         </div>
+
+         {/* HORIZONTAL SWIPE CAROUSEL */}
+         <div style={{ flex: 1, position: 'relative' }}>
+            {loading ? (
+               <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)' }}>
+                  <div className="spinner" style={{ fontSize: '2rem', marginBottom: '15px' }}>⏳</div>
+                  <div style={{ fontSize: '0.9rem' }}>Booting Ghhost Brain...</div>
+               </div>
+            ) : (
+               <div className="carousel-container" style={{
+                  display: 'flex',
+                  overflowX: 'auto',
+                  scrollSnapType: 'x mandatory',
+                  gap: '16px',
+                  padding: '0 20px 30px', /* Padding bottom for scrollbar/shadows */
+                  height: '100%',
+                  scrollbarWidth: 'none', /* Hide scrollbar Firefox */
+               }}>
+                  {currentList.length === 0 ? (
+                     <div style={{ flex: '1 0 100%', display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)', textAlign: 'center', padding: '0 20px' }}>
+                        No high-confidence {activeTab} found for today's slate. Check back later.
+                     </div>
+                  ) : (
+                     <>
+                        {currentList.map((pred, idx) => renderPredictionCard(pred, idx))}
+                        
+                        {/* FREEMIUM UPSELL CARD */}
+                        {!isPro && fullList.length > 2 && (
+                           <div className="swipe-card upsell-card" style={{
+                              background: 'rgba(20, 20, 25, 0.3)',
+                              border: `1px dashed rgba(255,255,255,0.2)`,
+                              borderRadius: '16px',
+                              padding: '24px',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              flex: '0 0 85%',
+                              scrollSnapAlign: 'center',
+                              height: '100%',
+                              textAlign: 'center',
+                              position: 'relative',
+                              overflow: 'hidden'
+                           }}>
+                              {/* Background Blur Effect */}
+                              <div style={{ position: 'absolute', inset: 0, backdropFilter: 'blur(8px)', zIndex: 1 }}></div>
+                              
+                              <div style={{ position: 'relative', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '15px' }}>
+                                 <span style={{ fontSize: '3rem' }}>🔒</span>
+                                 <h3 style={{ margin: 0, color: 'white', fontSize: '1.2rem', fontWeight: 800 }}>Unlock Full Slate</h3>
+                                 <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: '1.4' }}>
+                                    Ghhost Pro members get access to unlimited daily predictions, deep spatial heatmaps, and the AI Autopsy Memory Engine.
+                                 </p>
+                                 <button style={{
+                                    marginTop: '10px',
+                                    background: 'linear-gradient(135deg, #f472b6, #c026d3)',
+                                    color: 'white',
+                                    border: 'none',
+                                    padding: '10px 24px',
+                                    borderRadius: '30px',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
+                                 }}>
+                                    Upgrade to Pro
+                                 </button>
+                              </div>
+                           </div>
+                        )}
+                     </>
+                  )}
                </div>
             )}
-          </div>
-        </section>
-      )}
+         </div>
+         </>
+         )}
+      </div>
 
-      {loading && <div className="loading">Analyzing massive datasets...</div>}
-      {error && <div style={{color: '#ef4444', textAlign: 'center', marginTop: '20px'}}><ShieldAlert /> {error}</div>}
+      <style>{`
+        /* Hide scrollbar for Chrome, Safari and Opera */
+        .carousel-container::-webkit-scrollbar {
+          display: none;
+        }
+        
+        .context-badge {
+           display: flex;
+           align-items: center;
+           gap: 8px;
+           padding: 8px 12px;
+           border-radius: 8px;
+           font-size: 0.75rem;
+           font-weight: 600;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .spinner {
+           animation: spin 2s linear infinite;
+        }
 
-      {/* PLAYER / TEAM ANALYTICS VIEW */}
-      {mode !== 'PREDICTOR' && selectedEntity && !loading && (
-        <>
-          {mode === 'PLAYER' && (
-            <div style={{display: 'flex', justifyContent: 'center', marginBottom: '20px', gap: '10px', alignItems: 'center'}}>
-               <span style={{color: 'var(--text-muted)'}}>Primary Analytics Filter:</span>
-               <select className="dropdown-glass" value={targetStat} onChange={(e) => setTargetStat(e.target.value)}>
-                  {['PTS','REB','AST','STL','BLK','TOV'].map(s => <option key={s} value={s}>{s}</option>)}
-               </select>
-            </div>
-          )}
-
-          <div className="dashboard-grid">
-            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                 <div>
-                   <h2 style={{ fontSize: '2rem', marginBottom: '8px' }}>{selectedEntity.name}</h2>
-                   <p style={{ color: 'var(--accent)', fontWeight: 600 }}>{mode === 'TEAM_DEF' ? 'Season Defensive Profile' : 'Target Category: ' + targetStat}</p>
-                 </div>
-                 
-                 {mode === 'PLAYER' && playerStats?.gameLogs && (
-                   <select className="dropdown-glass" value={opponentFilter} onChange={(e) => setOpponentFilter(e.target.value)}>
-                     <option value="">vs All Teams (Season Avg)</option>
-                     {Array.from(new Set(playerStats.gameLogs.map(l => l.opponent))).sort().map(opp => <option key={opp} value={opp}>vs. {opp}</option>)}
-                   </select>
-                 )}
-              </div>
-
-              {/* Dynamic Stats Output based on new target feature */}
-              {mode === 'PLAYER' && filteredStats && (
-                  <div style={{marginTop: '20px'}}>
-                     <div style={{fontSize: '3.5rem', fontWeight: 900, color: '#f8fafc', marginBottom: '5px'}}>
-                        {filteredStats[targetStat]} <span style={{fontSize: '1rem', color: 'var(--text-muted)'}}>{targetStat} / Game</span>
-                     </div>
-                     <p style={{color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '20px'}}>
-                        Opponent Filter: {opponentFilter ? `Averages computed over ${filteredStats.games} games against the ${opponentFilter}` : `Season long average across all opponents`}
-                     </p>
-                     
-                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                        {['PTS','REB','AST','STL','BLK'].filter(s => s!==targetStat).map(s => (
-                           <div key={s} style={{background: 'rgba(255,255,255,0.05)', padding: '10px 15px', borderRadius: '8px'}}>
-                              <span style={{fontSize: '0.8rem', color: 'var(--text-muted)'}}>{s} </span>
-                              <strong style={{fontSize: '1.2rem'}}>{filteredStats[s]}</strong>
-                           </div>
-                        ))}
-                     </div>
-                  </div>
-              )}
-
-              {/* Interactive Zone Calculation Box */}
-              <div style={{ marginTop: '30px', padding: '24px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: '16px', flex: 1, border: '1px solid var(--panel-border)' }}>
-                 {computedPctStats ? (
-                    <div style={{ textAlign: 'center' }}>
-                       <h3 style={{ fontSize: '1.4rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
-                         <Target style={{verticalAlign:'middle', marginRight:'8px', color: 'var(--accent)'}}/>
-                         {activeZone ? `Zone: ${activeZone}` : 'All Interactive Court Locations'}
-                       </h3>
-                       <div style={{ display: 'flex', justifyContent: 'center', gap: '30px', marginBottom: '20px' }}>
-                          <div>
-                             <div style={{ fontSize: '3rem', fontWeight: 900, color: computedPctStats.pct > 40 ? '#22c55e' : (computedPctStats.pct < 30 ? '#ef4444' : '#eab308') }}>{computedPctStats.pct}%</div>
-                             <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{mode === 'TEAM_DEF' ? 'Opponent FGM' : 'Shooting %'}</div>
-                          </div>
-                       </div>
-                       <div style={{ fontSize: '1.2rem' }}>
-                          {computedPctStats.makes} <span style={{ color: 'var(--text-muted)' }}>Makes /</span> {computedPctStats.attempts} <span style={{ color: 'var(--text-muted)' }}>Attempts</span>
-                       </div>
-                    </div>
-                 ) : (
-                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '40px' }}>No shots found for these constraints.</div>
-                 )}
-              </div>
-            </div>
-
-            <div className="glass-panel" style={{ position: 'relative' }}>
-              <h3 style={{ textAlign: 'center', marginBottom: '16px' }}>Interactive Shot Chart</h3>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', textAlign: 'center', marginBottom: '20px' }}>Note: X/Y court data is strictly limited to Shot Attempts (PTS).</p>
-              <CourtMap shots={filteredShots} activeZone={activeZone} onZoneClick={setActiveZone} />
-            </div>
-            
-          </div>
-        </>
-      )}
-
-      {/* PREDICTOR VIEW */}
-      {mode === 'PREDICTOR' && (
-        <div style={{maxWidth: '1200px', margin: '0 auto'}}>
-          {predictorLoading && <div className="loading" style={{marginTop: '50px'}}><Activity size={48} style={{display:'block', margin:'0 auto', marginBottom:'10px', color:'#f59e0b'}}/> Evaluating Statistical Defenses vs Starting Rosters...</div>}
-          
-          {!predictorLoading && predictionsData?.matchups && (
-             <div style={{marginBottom: '40px', textAlign: 'center'}}>
-                <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>
-                <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px', flexWrap: 'wrap'}}>
-                  {predictionsData.matchups.map((m, i) => {
-                    const gameLabel = `${m.away} @ ${m.home}`;
-                    const isSelected = selectedGameFilter === gameLabel;
-                    return (
-                      <div key={i} 
-                           onClick={() => setSelectedGameFilter(isSelected ? '' : gameLabel)}
-                           style={{
-                             background: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255,255,255,0.05)', 
-                             padding: '8px 16px', 
-                             borderRadius: '8px', 
-                             border: isSelected ? '1px solid #f59e0b' : '1px solid var(--panel-border)',
-                             cursor: 'pointer',
-                             transition: '0.2s'
-                           }}>
-                         {m.away} <span style={{color: '#f59e0b'}}>@</span> {m.home}
-                      </div>
-                    );
-                  })}
-                </div>
-                
-                <div style={{marginTop: '24px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', display: 'inline-block', textAlign: 'left', border: '1px solid var(--panel-border)'}}>
-                  <h3 style={{fontSize: '0.9rem', marginBottom: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Prediction Glossary (Based on Opponent Defensive Rank)</h3>
-                  <div style={{display: 'flex', gap: '20px', fontSize: '0.85rem', flexWrap: 'wrap', justifyContent: 'center'}}>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#22c55e'}}></div> <strong>Strong Over:</strong> Opponent Ranks 1-5 (Worst Defense)</div>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#4ade80'}}></div> <strong>Over:</strong> Opponent Ranks 6-15 (Below Average)</div>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#f87171'}}></div> <strong>Under:</strong> Opponent Ranks 16-25 (Above Average)</div>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#ef4444'}}></div> <strong>Strong Under:</strong> Opponent Ranks 26-30 (Elite Defense)</div>
-                  </div>
-                  <p style={{fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px', textAlign: 'center'}}>*Rank 1 means the opponent gives up the MOST of a given stat (best for player), Rank 30 gives up the LEAST (worst for player).</p>
-                </div>
-             </div>
-          )}
-
-          {!predictorLoading && predictionsData?.players && (
-             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '20px' }}>
-                {predictionsData.players.filter(p => !selectedGameFilter || selectedGameFilter.includes(p.opponent)).map((p, i) => (
-                   <div key={i} className="glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
-                         <div>
-                            <h3 style={{fontSize: '1.3rem'}}>{p.player}</h3>
-                            <span style={{color: 'var(--text-muted)', fontSize: '0.85rem'}}>{p.team} vs {p.opponent} ({p.isHome ? 'Home' : 'Away'})</span>
-                         </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                         {p.evaluations.map(ev => {
-                            const flipKey = `${p.playerId}-${ev.category}`;
-                            const isFlipped = flippedCards[flipKey];
-                            const loadedH2H = h2hData[p.playerId]?.data || riskResults[p.playerId]?.h2hAverages;
-                            const h2hLoading = h2hData[p.playerId]?.loading && !loadedH2H;
-                            
-                            const catLower = ev.category === '3PM' ? 'fg3m' : ev.category.toLowerCase();
-                            const h2hVal = loadedH2H ? loadedH2H[catLower] : null;
-
-                            const lastGameValKey = `lastGame${catLower.charAt(0).toUpperCase() + catLower.slice(1)}`;
-                            const lastGameVal = loadedH2H ? loadedH2H[lastGameValKey] : null;
-
-                            return (
-                               <div key={ev.category} 
-                                    onClick={() => handleCardFlip(p.playerId, p.opponentAbbr, ev.category)}
-                                    style={{ 
-                                       perspective: '1000px', 
-                                       cursor: 'pointer', 
-                                       height: '90px' 
-                                    }}>
-                                  <div style={{
-                                     position: 'relative',
-                                     width: '100%',
-                                     height: '100%',
-                                     transition: 'transform 0.6s',
-                                     transformStyle: 'preserve-3d',
-                                     transform: isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
-                                  }}>
-                                     {/* FRONT OF CARD */}
-                                     <div style={{
-                                        position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
-                                        background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', 
-                                        border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column'
-                                     }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 }}>{ev.category}</span>
-                                           <span style={{ fontSize: '0.7rem', color: ev.color, fontWeight: 800, padding: '2px 6px', background: `${ev.color}20`, borderRadius: '4px' }}>
-                                              {ev.call}
-                                           </span>
-                                        </div>
-                                        <div style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '2px' }}>{ev.avg}</div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
-                                     </div>
-
-                                     {/* BACK OF CARD */}
-                                     <div style={{
-                                        position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
-                                        transform: 'rotateY(180deg)', background: 'rgba(0,0,0,0.5)',
-                                        borderRadius: '8px', border: '1px solid var(--accent)', display: 'flex', overflow: 'hidden'
-                                     }}>
-                                        <div style={{ flex: 1, borderRight: '1px solid rgba(255,255,255,0.15)', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '6px' }}>
-                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, marginBottom: '2px', textAlign: 'center', lineHeight: '1.2' }}>vs <br/>{p.opponentAbbr}</span>
-                                           {!loadedH2H && h2hLoading ? (
-                                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>...</div>
-                                           ) : (
-                                              <>
-                                                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'white', lineHeight: '1.2' }}>
-                                                    {h2hVal}
-                                                 </div>
-                                                 {loadedH2H && <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '0px' }}>{loadedH2H.games} Gms</div>}
-                                              </>
-                                           )}
-                                        </div>
-                                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', padding: '6px' }}>
-                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.65rem', fontWeight: 700, marginBottom: '2px', textAlign: 'center', lineHeight: '1.2' }}>Last<br/>Game</span>
-                                           {!loadedH2H && h2hLoading ? (
-                                              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>...</div>
-                                           ) : (
-                                              <>
-                                                 <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f59e0b', lineHeight: '1.2' }}>
-                                                    {lastGameVal}
-                                                 </div>
-                                                 {loadedH2H && <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '0px' }}>vs {loadedH2H.lastGameOpp}</div>}
-                                              </>
-                                           )}
-                                        </div>
-                                     </div>
-                                  </div>
-                               </div>
-                            );
-                         })}
-                      </div>
-
-                      {/* DEEP DIVE ENGINES ROW */}
-                      <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                         {/* SPATIAL ENGINE SECTION */}
-                         <div style={{ flex: 1, background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--panel-border)' }}>
-                            {!spatialResults[p.playerId]?.loaded && !spatialResults[p.playerId]?.loading && (
-                               <button onClick={() => runSpatialEngine(p.playerId, p.opponentId, p.player)} style={{ width: '100%', background: 'transparent', border: '1px dashed var(--accent)', color: 'var(--accent)', padding: '8px', borderRadius: '6px', cursor: 'pointer', transition: '0.2s', fontSize: '0.8rem' }}>
-                                  <Target size={14} style={{display:'inline', verticalAlign:'middle', marginRight:'4px'}}/> Analysis
-                               </button>
-                            )}
-                            {spatialResults[p.playerId]?.loading && <div style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.8rem' }}>Extracting Maps...</div>}
-                            {spatialResults[p.playerId]?.error && <div style={{ color: '#ef4444', textAlign: 'center', fontSize: '0.8rem' }}>{spatialResults[p.playerId].error}</div>}
-                            {spatialResults[p.playerId]?.loaded && (
-                               <div>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                     <strong style={{color: 'white', fontSize: '0.8rem'}}>Hotspot Call</strong>
-                                     <span style={{ color: spatialResults[p.playerId].color, fontWeight: 800, fontSize: '0.7rem' }}>{spatialResults[p.playerId].call}</span>
-                                  </div>
-                                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                                     <strong style={{color: '#f59e0b'}}>{spatialResults[p.playerId].hotZone}</strong> is this player's peak zone ({spatialResults[p.playerId].pPct}%). 
-                                     Defense allows <strong style={{color: 'white'}}>{spatialResults[p.playerId].dPct}%</strong> here.
-                                  </p>
-                               </div>
-                            )}
-                         </div>
-
-                         {/* CONTEXTUAL RISK ENGINE SECTION */}
-                         <div style={{ flex: 1, background: 'rgba(0,0,0,0.2)', padding: '12px', borderRadius: '8px', border: '1px solid var(--panel-border)' }}>
-                            {!riskResults[p.playerId]?.loaded && !riskResults[p.playerId]?.loading && (
-                               <button onClick={() => runRiskEngine(p.playerId, p.opponent, p.opponentAbbr, p.isHome)} style={{ width: '100%', background: 'transparent', border: '1px dashed #f59e0b', color: '#f59e0b', padding: '8px', borderRadius: '6px', cursor: 'pointer', transition: '0.2s', fontSize: '0.8rem' }}>
-                                  <AlertTriangle size={14} style={{display:'inline', verticalAlign:'middle', marginRight:'4px'}}/> Context Risk
-                               </button>
-                            )}
-                            {riskResults[p.playerId]?.loading && <div style={{ color: 'var(--text-muted)', textAlign: 'center', fontSize: '0.8rem' }}>Scanning 82-Game Logs...</div>}
-                            {riskResults[p.playerId]?.error && <div style={{ color: '#ef4444', textAlign: 'center', fontSize: '0.8rem' }}>{riskResults[p.playerId].error}</div>}
-                            {riskResults[p.playerId]?.loaded && (
-                               <div>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                     <strong style={{color: 'white', fontSize: '0.8rem'}}>Overall Status</strong>
-                                     <span style={{ color: riskResults[p.playerId].riskColor, fontWeight: 800, fontSize: '0.7rem' }}>{riskResults[p.playerId].finalRisk}</span>
-                                  </div>
-                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '6px' }}>
-                                     PTS Rhythm: <strong style={{color: 'white'}}>{riskResults[p.playerId].rhythmArray}</strong>
-                                  </div>
-                                  {riskResults[p.playerId].h2hAverages ? (
-                                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '8px', background: 'rgba(255,255,255,0.05)', padding: '6px', borderRadius: '4px' }}>
-                                         <strong style={{color: 'white', display: 'block', marginBottom: '4px'}}>Past Stats vs {p.opponent} ({riskResults[p.playerId].h2hAverages.games} Games):</strong>
-                                         PTS: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.pts}</span> | 
-                                         REB: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.reb}</span> | 
-                                         AST: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.ast}</span> | 
-                                         3PM: <span style={{color: 'white'}}>{riskResults[p.playerId].h2hAverages.fg3m}</span>
-                                      </div>
-                                  ) : (
-                                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4', marginBottom: '8px' }}>
-                                         No previous matchups vs {p.opponent}.
-                                      </div>
-                                  )}
-                                  <ul style={{ paddingLeft: '14px', fontSize: '0.75rem', color: 'var(--text-muted)', margin: 0 }}>
-                                     {riskResults[p.playerId].highlights.map((h, idx) => <li key={`h-${idx}`} style={{color: '#4ade80', marginBottom: '4px'}}>{h}</li>)}
-                                     {riskResults[p.playerId].warnings.map((w, idx) => <li key={`w-${idx}`} style={{color: '#f87171', marginBottom: '4px'}}>{w}</li>)}
-                                     {riskResults[p.playerId].warnings.length === 0 && riskResults[p.playerId].highlights.length === 0 && <li>Baseline consistent. No major anomalies.</li>}
-                                  </ul>
-                               </div>
-                            )}
-                         </div>
-                      </div>
-
-                   </div>
-                ))}
-
-                {predictionsData.players.length === 0 && (
-                   <div style={{gridColumn: '1 / -1', textAlign: 'center', padding: '60px 40px', background: 'rgba(0,0,0,0.2)', borderRadius: '16px', border: '1px solid var(--panel-border)', color: 'var(--text-muted)'}}>
-                      <div style={{fontSize: '3rem', marginBottom: '15px'}}>💤</div>
-                      <h3 style={{fontSize: '1.5rem', color: 'white', marginBottom: '8px'}}>No Active Slates Found</h3>
-                      <p>There are zero daily matchups or active players scheduled for today's NBA slate.<br/>(Try checking back tomorrow when games resume!)</p>
-                   </div>
-                )}
-             </div>
-          )}
-        </div>
-      )}
-
-    </main>
+        /* Responsive Desktop Grid */
+        @media (min-width: 768px) {
+           .carousel-container {
+              display: grid !important;
+              grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)) !important;
+              overflow-x: visible !important;
+              scroll-snap-type: none !important;
+              height: auto !important;
+           }
+           .swipe-card {
+              flex: unset !important;
+              height: auto !important;
+           }
+        }
+      `}</style>
+    </div>
   );
 }

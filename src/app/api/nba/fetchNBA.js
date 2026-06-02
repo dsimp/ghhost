@@ -17,10 +17,15 @@ export async function fetchNBA(endpoint, params = {}) {
   Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    
     const res = await fetch(url.toString(), {
       method: 'GET',
       headers: nbaHeaders,
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
     
     if (!res.ok) {
       console.error('NBA API Error:', res.status, res.statusText);

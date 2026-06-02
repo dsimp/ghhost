@@ -2,6 +2,7 @@
 
 :root {
   --bg-color: #0f111a;
+  --bg-dark: #0a0a0f;
   --panel-bg: rgba(25, 28, 41, 0.6);
   --panel-border: rgba(255, 255, 255, 0.08);
   --text-main: #f8fafc;
