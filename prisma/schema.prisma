@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  name             String?
+  email            String?   @unique
+  emailVerified    DateTime?
+  image            String?
+  password         String?
+  accounts         Account[]
+  sessions         Session[]
+
+  isPro            Boolean  @default(false)
+  proExpiresAt     DateTime?
+  stripeCustomerId String?
+  subscriptionStatus String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model PredictionLog {
+  id             String   @id @default(cuid())
+  dateKey        String   // e.g., "2026-05-15"
+  sport          String   // "NBA" or "MLB"
+  playerId       String
+  playerName     String
+  teamAbbr       String?
+  opponentAbbr   String?
+  isHome         Boolean  @default(false)
+  category       String   // e.g., "PTS", "REB", "hits"
+  call           String   // e.g., "OVER", "UNDER", "STRONG OVER"
+  target         Float
+  confidence     Int
+  graded         Boolean  @default(false)
+  hit            Boolean?
+  actualResult   Float?
+  contextNote    String?
+  optimized      Boolean  @default(false) // Phase 3: Has this been processed by the feedback loop?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([dateKey])
+  @@index([playerId])
+}
+
+model PlayerHistory {
+  id             String   @id @default(cuid())
+  playerId       String
+  category       String
+  total          Int      @default(0)
+  hits           Int      @default(0)
+  misses         Int      @default(0)
+  hitRate        Float    @default(0)
+
+  // Contextual Data
+  homeHits       Int      @default(0)
+  homeMisses     Int      @default(0)
+  awayHits       Int      @default(0)
+  awayMisses     Int      @default(0)
+  opponentSplits Json?
+
+  contextWarnings Json?   // Storing an array of strings e.g., ["Blowout", "Subbed early"]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([playerId, category])
+}
+
+model DailyCache {
+  id        String   @id @default(cuid())
+  sport     String   // "NBA" or "MLB"
+  gameDate  String
+  timestamp BigInt
+  payload   Json
+
+  @@unique([sport, gameDate])
+}
+
+// Phase 3: Self-Correcting Feedback Loop — Learned Adjustments
+model LearnedAdjustment {
+  id          String   @id @default(cuid())
+  sport       String   // "NBA", "WNBA", "MLB"
+  bucket      String   // e.g., "b2b_PTS", "tough_defense_REB", "travel_heavy_AST"
+  adjustment  Float    @default(0) // Learned modifier (e.g., -0.03 = reduce projection by 3%)
+  sampleSize  Int      @default(0) // How many predictions contributed to this
+  meanError   Float    @default(0) // Average error in this bucket
+  lastUpdated DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@unique([sport, bucket])
+}

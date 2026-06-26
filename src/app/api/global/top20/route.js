@@ -1,0 +1,142 @@
+import { NextResponse } from 'next/server';
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma || new PrismaClient();
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+/**
+ * Global Top 20 Genius Board — Cross-Sport Leaderboard
+ * 
+ * Requirements:
+ * 1. Show the top 20 athletes across ALL sports (NBA, WNBA, MLB, NFL)
+ * 2. Ranked by prediction accuracy (hit rate)
+ * 3. Must be playing TODAY (exist in today's prediction cache)
+ * 4. Minimum 3 graded predictions (to have meaningful sample)
+ * 5. DNPs (hit=null) are excluded from hit rate calculation
+ * 6. Weighted score = accuracy × log(total) to reward precision AND volume
+ */
+export async function GET(request) {
+   const { searchParams } = new URL(request.url);
+   const dateStr = searchParams.get('date') || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+
+   try {
+      // Get today's cached predictions from ALL sports
+      const caches = await prisma.dailyCache.findMany({
+         where: { gameDate: dateStr }
+      });
+
+      // Get ALL graded prediction logs to compute accurate hit rates
+      // Only count predictions where hit is true or false (exclude DNPs where hit=null)
+      const gradedLogs = await prisma.predictionLog.findMany({
+         where: {
+            graded: true,
+            hit: { not: null } // Exclude DNPs entirely
+         },
+         select: {
+            playerId: true,
+            category: true,
+            hit: true,
+            sport: true
+         }
+      });
+
+      // Build hit rate lookup: playerId -> category -> { total, hits, hitRate }
+      const historyMap = {};
+      for (const log of gradedLogs) {
+         if (!historyMap[log.playerId]) historyMap[log.playerId] = {};
+         if (!historyMap[log.playerId][log.category]) {
+            historyMap[log.playerId][log.category] = { total: 0, hits: 0 };
+         }
+         historyMap[log.playerId][log.category].total++;
+         if (log.hit) historyMap[log.playerId][log.category].hits++;
+      }
+
+      // Calculate hit rates
+      for (const pid of Object.keys(historyMap)) {
+         for (const cat of Object.keys(historyMap[pid])) {
+            const entry = historyMap[pid][cat];
+            entry.hitRate = entry.total > 0 ? entry.hits / entry.total : 0;
+         }
+      }
+
+      let candidates = [];
+
+      caches.forEach(cache => {
+         const sport = cache.sport;
+         const data = cache.payload;
+
+         if (data && data.players) {
+            data.players.forEach(p => {
+               if (!p.evaluations) return;
+               
+               const playerId = String(p.playerId);
+               
+               p.evaluations.forEach(ev => {
+                  // Look up actual history (DNP-excluded)
+                  const playerHist = historyMap[playerId]?.[ev.category];
+                  
+                  let accuracy, totalGames;
+                  if (playerHist && playerHist.total >= 3) {
+                     accuracy = playerHist.hitRate;
+                     totalGames = playerHist.total;
+                  } else {
+                     return; // Skip — not enough graded data
+                  }
+
+                  // QUALITY FILTERS
+                  if (accuracy < 0.55) return; // Min 55% accuracy
+
+                  // Weighted score: accuracy × log(sample_size)
+                  const weightedScore = accuracy * Math.log2(totalGames + 1);
+
+                  candidates.push({
+                     player: p.player,
+                     team: p.team,
+                     opponent: p.opponentAbbr || p.opponent,
+                     sport: sport,
+                     category: ev.category,
+                     call: ev.call,
+                     target: ev.projectedTarget,
+                     accuracy: (accuracy * 100).toFixed(0),
+                     confidence: ev.confidence,
+                     totalGames: totalGames,
+                     weightedScore: weightedScore
+                  });
+               });
+            });
+         }
+      });
+
+      // Deduplicate: one entry per player (take their best category)
+      const bestPerPlayer = {};
+      candidates.forEach(c => {
+         const key = `${c.player}-${c.sport}`;
+         if (!bestPerPlayer[key] || c.weightedScore > bestPerPlayer[key].weightedScore) {
+            bestPerPlayer[key] = c;
+         }
+      });
+
+      const deduped = Object.values(bestPerPlayer);
+
+      // Sort by weighted score (accuracy × volume), tie-break by raw accuracy
+      deduped.sort((a, b) => {
+         if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
+         return parseFloat(b.accuracy) - parseFloat(a.accuracy);
+      });
+
+      // Take the top 20 locks across the entire platform
+      const top20 = deduped.slice(0, 20);
+
+      return NextResponse.json({ 
+         date: dateStr, 
+         topLocks: top20,
+         totalCandidates: candidates.length,
+         sportsRepresented: [...new Set(candidates.map(c => c.sport))]
+      });
+
+   } catch (error) {
+      console.error("Global Top 20 Error:", error);
+      return NextResponse.json({ error: "Failed to compile top 20 board." }, { status: 500 });
+   }
+}

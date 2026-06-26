@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Activity, Target, XCircle, CheckCircle2, Search } from 'lucide-react';
+import { Activity, Target, XCircle, CheckCircle2, Search, Ghost } from 'lucide-react';
 
 export default function TransparencyWindow() {
    const [historyData, setHistoryData] = useState(null);
@@ -39,18 +39,23 @@ export default function TransparencyWindow() {
    let displayPredictions = [];
    if (selectedDate && historyData.predictions[selectedDate]) {
       const dayData = historyData.predictions[selectedDate];
-      if (dayData.NBA) displayPredictions = [...displayPredictions, ...dayData.NBA.flatMap(p => p.evaluations.map(e => ({...e, player: p.playerName, opponent: p.opponentAbbr, sport: 'NBA'})))];
-      if (dayData.MLB) displayPredictions = [...displayPredictions, ...dayData.MLB.flatMap(p => p.evaluations.map(e => ({...e, player: p.playerName, opponent: p.opponentAbbr, sport: 'MLB'})))];
+      if (dayData.NBA) displayPredictions = [...displayPredictions, ...dayData.NBA.flatMap(p => p.evaluations.map(e => ({...e, player: p.player, opponent: p.opponentAbbr, sport: 'NBA'})))];
+      if (dayData.MLB) displayPredictions = [...displayPredictions, ...dayData.MLB.flatMap(p => p.evaluations.map(e => ({...e, player: p.player, opponent: p.opponentAbbr, sport: 'MLB'})))];
+      // Include WNBA and NFL if they exist
+      if (dayData.WNBA) displayPredictions = [...displayPredictions, ...dayData.WNBA.flatMap(p => p.evaluations.map(e => ({...e, player: p.player, opponent: p.opponentAbbr, sport: 'WNBA'})))];
+      if (dayData.NFL) displayPredictions = [...displayPredictions, ...dayData.NFL.flatMap(p => p.evaluations.map(e => ({...e, player: p.player, opponent: p.opponentAbbr, sport: 'NFL'})))];
    }
 
    if (search) {
       displayPredictions = displayPredictions.filter(p => p.player.toLowerCase().includes(search.toLowerCase()) || p.opponent.toLowerCase().includes(search.toLowerCase()));
    }
 
-   // Calculate daily accuracy
+   // Calculate daily accuracy — exclude DNPs (hit === null) from the count
    const graded = displayPredictions.filter(p => p.graded);
-   const hits = graded.filter(p => p.hit).length;
-   const accuracy = graded.length > 0 ? ((hits / graded.length) * 100).toFixed(1) : 0;
+   const gradedNonDNP = graded.filter(p => p.hit !== null && p.contextNote !== 'DNP / No Game Data' && p.contextNote !== 'DNP / No Game Played');
+   const hits = gradedNonDNP.filter(p => p.hit).length;
+   const accuracy = gradedNonDNP.length > 0 ? ((hits / gradedNonDNP.length) * 100).toFixed(1) : 0;
+   const dnpCount = graded.filter(p => p.hit === null || p.contextNote?.startsWith('DNP')).length;
 
    // Global accuracy
    let globalTotal = 0;
@@ -70,7 +75,7 @@ export default function TransparencyWindow() {
          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '20px', marginBottom: '30px' }}>
             <div>
                <h2 style={{ fontSize: '2rem', margin: 0, color: '#f472b6', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  👻 Ghhost Transparency Window
+                  <Ghost size={32} color="#f472b6" /> Ghhost Transparency Window
                </h2>
                <p style={{ color: 'var(--text-muted)', margin: '5px 0 0' }}>The Autopsy Engine's historical log of predictions and evolutions.</p>
             </div>
@@ -79,7 +84,7 @@ export default function TransparencyWindow() {
                <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Selected Date Hits</div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 800, color: accuracy >= 60 ? '#22c55e' : (accuracy > 0 ? '#ef4444' : 'white') }}>{accuracy}%</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hits} / {graded.length} Graded</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hits} / {gradedNonDNP.length} Graded{dnpCount > 0 ? ` · ${dnpCount} DNP` : ''}</div>
                </div>
                <div style={{ width: '1px', background: 'var(--panel-border)' }}></div>
                <div style={{ textAlign: 'center' }}>
@@ -120,10 +125,10 @@ export default function TransparencyWindow() {
          ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '15px' }}>
                {displayPredictions.map((pred, i) => {
-                  const isHit = pred.hit;
+                  const isHit = pred.hit === true;
                   const isPending = !pred.graded;
-                  const isVoid = pred.contextNote === 'DNP / No Game Played';
-                  const isMiss = pred.graded && !pred.hit && !isVoid;
+                  const isDNP = pred.graded && (pred.hit === null || pred.contextNote?.startsWith('DNP'));
+                  const isMiss = pred.graded && pred.hit === false && !isDNP;
                   
                   let cardColor = 'rgba(255,255,255,0.05)';
                   let borderColor = 'var(--panel-border)';
@@ -137,9 +142,9 @@ export default function TransparencyWindow() {
                      cardColor = 'rgba(239, 68, 68, 0.08)';
                      borderColor = '#ef4444';
                      icon = <XCircle size={24} color="#ef4444" />;
-                  } else if (isVoid) {
-                     cardColor = 'rgba(255, 255, 255, 0.02)';
-                     borderColor = '#71717a';
+                  } else if (isDNP) {
+                     cardColor = 'rgba(113, 113, 122, 0.06)';
+                     borderColor = '#52525b';
                   }
 
                   return (
@@ -155,7 +160,8 @@ export default function TransparencyWindow() {
                      }}>
                         <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
                            {icon}
-                           {isPending && <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '2px 8px', border: '1px solid var(--panel-border)', borderRadius: '10px' }}>PENDING</span>}
+                           {isPending && <span style={{ fontSize: '0.75rem', color: '#fbbf24', padding: '2px 8px', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '10px', background: 'rgba(251,191,36,0.08)' }}>PENDING</span>}
+                           {isDNP && <span style={{ fontSize: '0.75rem', color: '#71717a', padding: '2px 8px', border: '1px solid #52525b', borderRadius: '10px', background: 'rgba(113,113,122,0.08)' }}>DNP</span>}
                         </div>
                         
                         <div style={{ marginBottom: '10px', paddingRight: '30px' }}>
@@ -174,7 +180,7 @@ export default function TransparencyWindow() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: '8px' }}>
                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Actual Result:</span>
                            <span style={{ fontSize: '1.2rem', fontWeight: 800, color: isHit ? '#22c55e' : (isMiss ? '#ef4444' : 'white') }}>
-                              {isPending ? '-' : pred.actualResult}
+                              {isPending ? '-' : (isDNP ? 'DNP' : pred.actualResult)}
                            </span>
                         </div>
 

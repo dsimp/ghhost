@@ -1,13 +1,149 @@
 import { NextResponse } from 'next/server';
 import { fetchMLB } from '../fetchMLB';
-import { logPredictionsToVault, getFullPlayerHistory } from '../../memory/vault';
+import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
+import { PrismaClient } from '@prisma/client';
+
+const PARK_FACTORS = {
+  ARI: { H: 1.04, TB: 1.08 }, ATL: { H: 0.99, TB: 1.01 }, BAL: { H: 1.02, TB: 1.05 },
+  BOS: { H: 1.03, TB: 1.06 }, CHC: { H: 0.98, TB: 0.97 }, CWS: { H: 1.01, TB: 1.04 },
+  CIN: { H: 1.05, TB: 1.10 }, CLE: { H: 0.97, TB: 0.95 }, COL: { H: 1.15, TB: 1.30 },
+  DET: { H: 0.98, TB: 0.96 }, HOU: { H: 0.99, TB: 1.01 }, KC:  { H: 1.02, TB: 0.98 },
+  LAA: { H: 0.99, TB: 1.00 }, LAD: { H: 0.96, TB: 0.97 }, MIA: { H: 0.95, TB: 0.92 },
+  MIL: { H: 1.00, TB: 1.02 }, MIN: { H: 1.02, TB: 1.05 }, NYM: { H: 0.97, TB: 0.96 },
+  NYY: { H: 1.01, TB: 1.08 }, OAK: { H: 0.96, TB: 0.93 }, PHI: { H: 1.02, TB: 1.04 },
+  PIT: { H: 0.98, TB: 0.96 }, SD:  { H: 0.95, TB: 0.93 }, SF:  { H: 0.96, TB: 0.90 },
+  SEA: { H: 0.97, TB: 0.94 }, STL: { H: 0.99, TB: 1.00 }, TB:  { H: 0.97, TB: 0.96 },
+  TEX: { H: 1.03, TB: 1.07 }, TOR: { H: 1.00, TB: 1.01 }, WSH: { H: 1.01, TB: 1.02 }
+};
+
+// Phase 4: Stadium coordinates for weather API (lat, lng, isRetractable)
+const STADIUM_COORDS = {
+  ARI: { lat: 33.445, lng: -112.067, dome: true },
+  ATL: { lat: 33.890, lng: -84.468, dome: false },
+  BAL: { lat: 39.284, lng: -76.622, dome: false },
+  BOS: { lat: 42.346, lng: -71.098, dome: false },
+  CHC: { lat: 41.948, lng: -87.656, dome: false },
+  CWS: { lat: 41.830, lng: -87.634, dome: false },
+  CIN: { lat: 39.097, lng: -84.508, dome: false },
+  CLE: { lat: 41.496, lng: -81.685, dome: false },
+  COL: { lat: 39.756, lng: -104.994, dome: false },
+  DET: { lat: 42.339, lng: -83.049, dome: false },
+  HOU: { lat: 29.757, lng: -95.355, dome: true },
+  KC:  { lat: 39.051, lng: -94.481, dome: false },
+  LAA: { lat: 33.800, lng: -117.883, dome: false },
+  LAD: { lat: 34.074, lng: -118.240, dome: false },
+  MIA: { lat: 25.778, lng: -80.220, dome: true },
+  MIL: { lat: 43.028, lng: -87.971, dome: true },
+  MIN: { lat: 44.982, lng: -93.278, dome: false },
+  NYM: { lat: 40.757, lng: -73.846, dome: false },
+  NYY: { lat: 40.829, lng: -73.927, dome: false },
+  OAK: { lat: 37.752, lng: -122.201, dome: false },
+  PHI: { lat: 39.906, lng: -75.167, dome: false },
+  PIT: { lat: 40.447, lng: -80.006, dome: false },
+  SD:  { lat: 32.707, lng: -117.157, dome: false },
+  SF:  { lat: 37.779, lng: -122.389, dome: false },
+  SEA: { lat: 47.591, lng: -122.332, dome: true },
+  STL: { lat: 38.623, lng: -90.193, dome: false },
+  TB:  { lat: 27.768, lng: -82.653, dome: true },
+  TEX: { lat: 32.747, lng: -97.083, dome: true },
+  TOR: { lat: 43.641, lng: -79.389, dome: true },
+  WSH: { lat: 38.873, lng: -77.008, dome: false }
+};
+
+// Phase 4: Fetch current weather from Open-Meteo (free, no API key)
+async function getGameWeather(homeTeamAbbr) {
+  const stadium = STADIUM_COORDS[homeTeamAbbr];
+  if (!stadium) return null;
+  if (stadium.dome) return { dome: true, temp: 72, wind: 0, humidity: 50, desc: '🏟️ Dome/Retractable Roof' };
+  
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${stadium.lat}&longitude=${stadium.lng}&current=temperature_2m,wind_speed_10m,relative_humidity_2m&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const current = data?.current;
+    if (!current) return null;
+    
+    const temp = Math.round(current.temperature_2m || 72);
+    const wind = Math.round(current.wind_speed_10m || 0);
+    const humidity = Math.round(current.relative_humidity_2m || 50);
+    
+    let desc = `${temp}°F, ${wind}mph wind, ${humidity}% humidity`;
+    return { dome: false, temp, wind, humidity, desc };
+  } catch {
+    return null;
+  }
+}
+
+// Phase 4: Calculate weather impact on hitting
+function calcWeatherModifier(weather, statCat) {
+  if (!weather || weather.dome) return { modifier: 1.0, text: '' };
+  
+  let modifier = 1.0;
+  let factors = [];
+  
+  // Temperature: Hot air = less dense = balls carry further
+  if (weather.temp >= 90) { 
+    modifier *= (statCat === 'TB') ? 1.06 : 1.03;
+    factors.push(`🌡️ Hot (${weather.temp}°F)`);
+  } else if (weather.temp >= 80) {
+    modifier *= (statCat === 'TB') ? 1.03 : 1.01;
+  } else if (weather.temp <= 50) {
+    modifier *= (statCat === 'TB') ? 0.94 : 0.97;
+    factors.push(`🥶 Cold (${weather.temp}°F)`);
+  } else if (weather.temp <= 60) {
+    modifier *= (statCat === 'TB') ? 0.97 : 0.99;
+  }
+  
+  // Wind: High wind suppresses fly balls, adds randomness
+  if (weather.wind >= 20) {
+    modifier *= (statCat === 'TB') ? 0.92 : 0.96;
+    factors.push(`💨 Heavy Wind (${weather.wind}mph)`);
+  } else if (weather.wind >= 15) {
+    modifier *= (statCat === 'TB') ? 0.96 : 0.98;
+    factors.push(`🌬️ Windy (${weather.wind}mph)`);
+  }
+  
+  // Humidity: High humidity = ball doesn't carry as well (contrary to belief)
+  if (weather.humidity >= 85) {
+    modifier *= 0.98;
+    factors.push('💧 High Humidity');
+  }
+  
+  const text = factors.length > 0 ? ` ${factors.join(', ')}` : '';
+  return { modifier, text };
+}
+
+
+const globalForPrisma = global;
+const prisma = globalForPrisma.prisma || new PrismaClient();
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export async function GET(request) {
+  const dateObj = new Date();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  const year = dateObj.getFullYear();
+  const gameDate = `${year}-${month}-${day}`; 
+
+  try {
+     const cached = await prisma.dailyCache.findUnique({
+       where: { sport_gameDate: { sport: 'MLB', gameDate } }
+     });
+     if (cached) {
+        const now = Date.now();
+        // Return cache if less than 1 hour old
+        if ((now - Number(cached.timestamp)) < 3600000) {
+            return NextResponse.json(cached.payload);
+        }
+     }
+  } catch (e) {}
+
   try {
     // 1. Fetch Today's Games with Probable Pitchers
     const scheduleData = await fetchMLB('schedule', {
       sportId: 1,
-      hydrate: 'probablePitcher'
+      hydrate: 'probablePitcher,team'
     });
 
     const gamesRowSet = scheduleData?.dates?.[0]?.games || [];
@@ -20,6 +156,8 @@ export async function GET(request) {
     const teamIdToOppositeName = {}; 
     const teamIdToOpposingPitcherId = {};
     const teamIdToName = {};
+    const teamIdToAbbr = {};
+    const teamIdToHomeTeamAbbr = {};
 
     gamesRowSet.forEach(g => {
       const homeTeam = g.teams.home.team;
@@ -30,9 +168,18 @@ export async function GET(request) {
       playingTeamIds.add(homeTeam.id);
       playingTeamIds.add(awayTeam.id);
       
+      const homeAbbr = homeTeam.abbreviation || homeTeam.name.substring(0, 3).toUpperCase();
+      const awayAbbr = awayTeam.abbreviation || awayTeam.name.substring(0, 3).toUpperCase();
+
       teamIdToName[homeTeam.id] = homeTeam.name;
       teamIdToName[awayTeam.id] = awayTeam.name;
+      teamIdToAbbr[homeTeam.id] = homeAbbr;
+      teamIdToAbbr[awayTeam.id] = awayAbbr;
       
+      // Both teams in this game play in the home team's park
+      teamIdToHomeTeamAbbr[homeTeam.id] = homeAbbr;
+      teamIdToHomeTeamAbbr[awayTeam.id] = homeAbbr;
+
       teamIdToOppositeName[homeTeam.id] = awayTeam.name;
       teamIdToOppositeName[awayTeam.id] = homeTeam.name;
 
@@ -54,13 +201,13 @@ export async function GET(request) {
        if (g.teams.home.probablePitcher) pitcherIdToTeamId[g.teams.home.probablePitcher.id] = g.teams.home.team.id;
     });
 
-    // 2. Fetch Top Hitters in the League (Limit 60)
+    // 2. Fetch Top Hitters in the League (Limit 200 for broad starter coverage)
     const topHittersData = await fetchMLB('stats', {
       stats: 'season',
       group: 'hitting',
       playerPool: 'ALL',
       season: 2026,
-      limit: 60,
+      limit: 200,
       sortStat: 'totalBases' // We care about Total Bases / Hits
     });
 
@@ -89,6 +236,13 @@ export async function GET(request) {
     // Fetch the Vault's Historical Memory
     const autopsyHistory = await getFullPlayerHistory();
 
+    // Phase 3: Fetch the Brain's Learned Adjustments
+    const learnedAdj = await getLearnedAdjustments('MLB');
+
+    if (!hittersDeepData || !pitchersDeepData) {
+       return NextResponse.json({ matchups: [], players: [], message: 'MLB Stats API is temporarily rate-limiting our servers. Please try again later.' });
+    }
+
     // Map Pitcher Data
     const pitcherProfiles = {};
     if (pitchersDeepData && pitchersDeepData.people) {
@@ -111,6 +265,13 @@ export async function GET(request) {
     }
 
     // 4. Ghhost Brain Evaluation Logic
+    // Phase 4: Fetch weather for all unique stadiums
+    const uniqueHomeAbbrs = [...new Set(Object.values(teamIdToHomeTeamAbbr))];
+    const weatherMap = {};
+    await Promise.all(uniqueHomeAbbrs.map(async (abbr) => {
+      weatherMap[abbr] = await getGameWeather(abbr);
+    }));
+
     const playerPredictions = [];
 
     if (hittersDeepData && hittersDeepData.people) {
@@ -166,163 +327,253 @@ export async function GET(request) {
              });
           }
 
-          // Evaluate Hits (H) and Total Bases (TB)
-          const statEvaluations = [];
+           // Evaluate Hitter Stats: H, TB, R, RBI, HR, SB, BB
+           const statEvaluations = [];
 
-          ['hits', 'totalBases'].forEach(statCat => {
-             const displayCat = statCat === 'hits' ? 'H' : 'TB';
-             const splitAvg = parseFloat(relevantSplit[statCat] / relevantSplit.atBats) || 0; // Per AB approximation
-             const seasonTotal = parseInt(relevantSplit[statCat]);
-             
-             if (seasonTotal < 10) return; // Not enough data vs this handedness
+            ['hits', 'totalBases', 'runs', 'rbi', 'homeRuns', 'stolenBases', 'baseOnBalls'].forEach(statCat => {
+               const displayCatMap = { hits: 'H', totalBases: 'TB', runs: 'R', rbi: 'RBI', homeRuns: 'HR', stolenBases: 'SB', baseOnBalls: 'BB' };
+               const displayCat = displayCatMap[statCat];
+               const statMapping = statCat; // gameLog key matches statCat for hitters
+               const splitAvg = parseFloat(relevantSplit[statCat] / relevantSplit.atBats) || 0; // Per AB approximation
+               const seasonTotal = parseInt(relevantSplit[statCat]);
 
-             let call = 'UNDER';
-             let color = '#ef4444';
-             let confidenceScore = 50;
+              // Rarer stats (HR, SB, BB) use a lower minimum data threshold
+              const minDataThreshold = ['homeRuns', 'stolenBases', 'baseOnBalls'].includes(statCat) ? 1 : 3;
+              if (seasonTotal < minDataThreshold) return; // Not enough data vs this handedness
 
-             // Matchup Baseline (Pitcher ERA)
-             if (oppPitcher.era > 4.50) {
-                 call = 'OVER';
-                 color = '#4ade80';
-                 confidenceScore += 10;
-                 if (oppPitcher.era > 5.50) {
-                     call = 'STRONG OVER';
+              // Determine abbreviations for park factor and learned adjustment lookups
+              const homeTeamAbbr = teamIdToHomeTeamAbbr[teamId] || '';
+              // Derive opponent abbreviation from the opponent's team name
+              let oppTeamId = null;
+              gamesRowSet.forEach(g => {
+                 if (g.teams.home.team.id === teamId) oppTeamId = g.teams.away.team.id;
+                 if (g.teams.away.team.id === teamId) oppTeamId = g.teams.home.team.id;
+              });
+              const oppAbbr = teamIdToAbbr[oppTeamId] || oppName.substring(0, 3).toUpperCase();
+
+              let call = 'UNDER';
+              let color = '#ef4444';
+              let confidenceScore = 50;
+
+               // Matchup Baseline (Pitcher ERA) — applies to H, TB, R, RBI, HR
+               const eraAffectedStats = ['hits', 'totalBases', 'runs', 'rbi', 'homeRuns'];
+               if (eraAffectedStats.includes(statCat)) {
+                 if (oppPitcher.era > 4.50) {
+                   call = 'OVER';
+                   color = '#4ade80';
+                   confidenceScore += 10;
+                   if (oppPitcher.era > 5.50) {
+                       call = 'STRONG OVER';
+                       color = '#22c55e';
+                       confidenceScore += 10;
+                   }
+                 } else if (oppPitcher.era < 3.20) {
+                   call = 'STRONG UNDER';
+                   confidenceScore += 15;
+                 }
+               }
+
+               // Handedness Split Advantage
+               // Average MLB hitter hits ~0.240. If they hit >.300 vs this hand, huge advantage.
+               const splitThresholds = { hits: 0.300, totalBases: 0.500, runs: 0.180, rbi: 0.200, homeRuns: 0.060, stolenBases: 0.030, baseOnBalls: 0.120 };
+               const isAvgHigh = splitAvg > (splitThresholds[statCat] || 0.200);
+               if (isAvgHigh) {
+                   if (call.includes('OVER')) confidenceScore += 15;
+                   else confidenceScore -= 10; // Contradicts pitcher dominance
+               }
+
+               // Streak Momentum & Rest Days
+               let streakText = "";
+               let restText = "";
+              if (gameLogs.length > 0) {
+                  // Calculate Rest Days from last game
+                  const lastGameDate = new Date(gameLogs[0].date);
+                  const today = new Date();
+                  const restDays = Math.floor((today - lastGameDate) / (1000 * 60 * 60 * 24));
+                  
+                  if (restDays === 0) {
+                      confidenceScore -= 10;
+                      restText = " (Back-to-Back)";
+                   } else if (restDays >= 4 && restDays <= 10) {
+                      confidenceScore -= 5;
+                      restText = ` (${restDays}-Day Rest)`;
+                   } else if (restDays > 10 && restDays <= 30) {
+                      restText = ' (Extended Rest)';
+                   }
+
+                  const recent = gameLogs.slice(0, 10);
+                  let overCount = 0;
+                  let underCount = 0;
+                  // Target lines per stat category
+                  const targetLineMap = { hits: 0.5, totalBases: 1.5, runs: 0.5, rbi: 0.5, homeRuns: 0.5, stolenBases: 0.5, baseOnBalls: 0.5 };
+                  const targetLine = targetLineMap[statCat] || 0.5;
+                  recent.forEach(log => {
+                     const val = parseInt(log.stat[statCat]) || 0;
+                     if (val > targetLine) overCount++;
+                     else underCount++;
+                  });
+
+                 // Advanced Regression Mechanics (The Gambler's Fallacy correction)
+                 if (call.includes('OVER') && overCount >= 8) {
+                     confidenceScore -= 20; 
+                     call = 'UNDER'; // The engine predicts regression
+                     color = '#ef4444';
+                     streakText = `👻 Ghhost Prediction: Regression Expected (Reverting after ${overCount} Overs)`;
+                 } else if (call.includes('UNDER') && underCount >= 8) {
+                     confidenceScore -= 20;
+                     call = 'OVER';
                      color = '#22c55e';
-                     confidenceScore += 10;
+                     streakText = `👻 Ghhost Prediction: Breakout Expected (Positive regression)`;
+                 } else if (call.includes('OVER') && overCount >= 7) {
+                     confidenceScore += 15;
+                     streakText = `🔥 Hot: Over in ${overCount} of last ${recent.length}`;
+                  } else if (call.includes('UNDER') && underCount >= 7) {
+                      confidenceScore += 15;
+                      streakText = `🧊 Cold: Under in ${underCount} of last ${recent.length}`;
+                  } else if (call.includes('OVER') && underCount >= 6) {
+                      confidenceScore -= 15;
+                      streakText = `⚠️ Cold Trend: Under in ${underCount} of last ${recent.length}`;
+                  } else if (call.includes('UNDER') && overCount >= 6) {
+                      confidenceScore -= 15;
+                      streakText = `⚠️ Hot Trend: Over in ${overCount} of last ${recent.length}`;
                  }
-             } else if (oppPitcher.era < 3.20) {
-                 call = 'STRONG UNDER';
-                 confidenceScore += 15;
-             }
+              }
 
-             // Handedness Split Advantage
-             // Average MLB hitter hits ~0.240. If they hit >.300 vs this hand, huge advantage.
-             const isAvgHigh = (statCat === 'hits' && splitAvg > 0.300) || (statCat === 'totalBases' && splitAvg > 0.500);
-             if (isAvgHigh) {
-                 if (call.includes('OVER')) confidenceScore += 15;
-                 else confidenceScore -= 10; // Contradicts pitcher dominance
-             }
+               // Spatial Context Text
+               let spatialText = "";
+               if (hotZone !== 'Balanced') {
+                  if (call.includes('OVER')) {
+                     confidenceScore += 5;
+                     spatialText = `🎯 Target Zone: ${hotZone}`;
+                  } else {
+                     spatialText = `🛑 Spray Tendency: ${hotZone}`;
+                  }
+               }
 
-             // Streak Momentum & Rest Days
-             let streakText = "";
-             let restText = "";
-             if (gameLogs.length > 0) {
-                // Calculate Rest Days from last game
-                const lastGameDate = new Date(gameLogs[0].date);
-                const today = new Date();
-                const restDays = Math.floor((today - lastGameDate) / (1000 * 60 * 60 * 24));
-                
-                if (restDays === 0) {
-                   confidenceScore -= 10;
-                   restText = " (Back-to-Back Fatigue)";
-                } else if (restDays >= 4) {
-                   confidenceScore -= 5; // Layoff rust
-                   restText = ` (${restDays} Day Layoff Rust)`;
-                }
+               // Cap constraints
+               if (confidenceScore < 60) call = call.replace('STRONG ', '');
+              if (confidenceScore > 99) confidenceScore = 99;
+              if (confidenceScore < 1) confidenceScore = 1;
 
-                const recent = gameLogs.slice(0, 10);
-                let overCount = 0;
-                let underCount = 0;
-                // Target lines: 1.5 TB, 0.5 H
-                const targetLine = statCat === 'hits' ? 0.5 : 1.5;
-                recent.forEach(log => {
-                   const val = parseInt(log.stat[statCat]) || 0;
-                   if (val > targetLine) overCount++;
-                   else underCount++;
-                });
+              // Data-driven projection
+              const hitterGameLog = gameLogs;
+              const gamesPlayed = hitterGameLog.length;
+              // Default target lines for projection baselines
+              const baseAvgMap = { hits: 0.5, totalBases: 1.5, runs: 0.5, rbi: 0.5, homeRuns: 0.2, stolenBases: 0.1, baseOnBalls: 0.3 };
+              const baseAvg = baseAvgMap[statCat] || 0.5;
+              const seasonLogTotal = hitterGameLog.reduce((sum, g) => sum + (parseInt(g.stat?.[statMapping] || g.stat?.[statCat]) || 0), 0);
+              const playerSeasonAvg = gamesPlayed > 0 ? seasonLogTotal / gamesPlayed : baseAvg;
 
-                // Advanced Regression Mechanics (The Gambler's Fallacy correction)
-                if (call.includes('OVER') && overCount >= 8) {
-                    confidenceScore -= 20; 
-                    call = 'UNDER'; // The engine predicts regression
-                    color = '#f87171';
-                    streakText = `👻 Ghhost Prediction: Regression Expected (Reverting after ${overCount} Overs)`;
-                } else if (call.includes('UNDER') && underCount >= 8) {
-                    confidenceScore -= 20;
-                    call = 'OVER';
-                    color = '#4ade80';
-                    streakText = `👻 Ghhost Prediction: Breakout Expected (Positive regression)`;
-                } else if (call.includes('OVER') && overCount >= 7) {
-                    confidenceScore += 15;
-                    streakText = `🔥 Hot: Over in ${overCount} of last ${recent.length}`;
-                } else if (call.includes('UNDER') && underCount >= 7) {
-                    confidenceScore += 15;
-                    streakText = `🧊 Cold: Under in ${underCount} of last ${recent.length}`;
-                } else if (call.includes('OVER') && underCount >= 6) {
-                    confidenceScore -= 15;
-                    streakText = `⚠️ Cold Trend: Under in ${underCount} of last ${recent.length}`;
-                } else if (call.includes('UNDER') && overCount >= 6) {
-                    confidenceScore -= 15;
-                    streakText = `⚠️ Hot Trend: Over in ${overCount} of last ${recent.length}`;
-                }
-             }
+              const recentGames = hitterGameLog.slice(0, 10);
+              const recentTotal = recentGames.reduce((sum, g) => sum + (parseInt(g.stat?.[statMapping] || g.stat?.[statCat]) || 0), 0);
+              const recentAvg = recentGames.length > 0 ? recentTotal / recentGames.length : playerSeasonAvg;
 
-             // Spatial Context Text
-             let spatialText = "";
-             if (hotZone !== 'Balanced') {
-                if (call.includes('OVER')) {
-                   confidenceScore += 5;
-                   spatialText = `🎯 Target Zone: ${hotZone}`;
-                } else {
-                   spatialText = `🛑 Spray Tendency: ${hotZone}`;
-                }
-             }
+              const expectedABs = 4;
+              const splitPerAB = relevantSplit && relevantSplit.atBats > 0 ? relevantSplit[statCat] / relevantSplit.atBats : null;
+              const splitProjection = splitPerAB !== null ? splitPerAB * expectedABs : playerSeasonAvg;
 
-             // Cap constraints
-             if (confidenceScore < 60) call = call.replace('STRONG ', '');
-             if (confidenceScore > 99) confidenceScore = 99;
-             if (confidenceScore < 1) confidenceScore = 1;
+              let baseProjection = (playerSeasonAvg * 0.30) + (recentAvg * 0.40) + (splitProjection * 0.30);
 
-             let multiplier = 1.0;
-             if (call.includes('STRONG OVER')) multiplier = 1.6;
-             else if (call.includes('OVER')) multiplier = 1.3;
-             else if (call.includes('STRONG UNDER')) multiplier = 0.4;
-             else if (call.includes('UNDER')) multiplier = 0.7;
+              // Park factor — only applies to H and TB (other stats use 1.0)
+              const parkFactorStats = ['H', 'TB'];
+              const parkFactor = parkFactorStats.includes(displayCat) ? (PARK_FACTORS[homeTeamAbbr]?.[displayCat] || 1.0) : 1.0;
+              baseProjection *= parkFactor;
 
-             const baseAvg = statCat === 'hits' ? 0.5 : 1.5;
-             const projectedTarget = +(baseAvg * multiplier).toFixed(1);
+              // ERA modifier — applies to H, TB, R, RBI, HR
+              if (eraAffectedStats.includes(statCat)) {
+                const eraModifier = oppPitcher.era > 0 ? 1.0 + ((oppPitcher.era - 4.00) / 4.00) * 0.08 : 1.0;
+                baseProjection *= eraModifier;
+              }
 
-             let historyStr = "";
-             const pHistory = autopsyHistory[hitter.id]?.[displayCat];
-             if (pHistory && pHistory.total > 0) {
-                 const hitRate = pHistory.hits / pHistory.total;
-                 if (pHistory.total >= 3 && hitRate < 0.4) {
-                     confidenceScore -= 15;
-                     historyStr = ` Proceed with caution. Historical struggle (${(hitRate * 100).toFixed(0)}% accuracy).`;
-                 } else if (pHistory.total >= 3 && hitRate > 0.8) {
-                     confidenceScore += 10;
-                     historyStr = ` Historical lock (${(hitRate * 100).toFixed(0)}% accuracy).`;
-                 }
-                 
-                 if (pHistory.contextWarnings?.length > 0) {
-                     const earlySubs = pHistory.contextWarnings.filter(w => w.includes('Subbed')).length;
-                     if (earlySubs > 0 && call.includes('OVER')) {
-                         confidenceScore -= 10;
-                         historyStr += ` ⚠️ Prone to early substitution.`;
-                     }
-                 }
-             }
+              // Phase 4: Weather modifier — applies to H, TB, HR, R, RBI
+              const weatherAffectedStats = ['hits', 'totalBases', 'homeRuns', 'runs', 'rbi'];
+              const gameWeather = weatherMap[homeTeamAbbr];
+              if (weatherAffectedStats.includes(statCat)) {
+                const weatherDisplayCat = (statCat === 'homeRuns' || statCat === 'runs' || statCat === 'rbi') ? 'TB' : (statCat === 'hits' ? 'H' : 'TB');
+                const { modifier: weatherMod, text: weatherText } = calcWeatherModifier(gameWeather, weatherDisplayCat);
+                baseProjection *= weatherMod;
+              }
+              // Always compute weatherText for oppDesc display
+              const { text: weatherText } = calcWeatherModifier(gameWeather, displayCat);
 
-             const callDirection = call.includes('OVER') ? 'OVER' : 'UNDER';
-             const memoryText = `👻 Ghhost Prediction: ${callDirection} for today. Pinpoint projection: ${projectedTarget} ${displayCat}.${historyStr}`;
+              const confidenceScale = 1.0 + ((confidenceScore - 50) / 500);
+              let projectedTarget = Math.max(0, +(baseProjection * confidenceScale).toFixed(1));
 
-             // Only push if confidence is high enough to be a "Play" (> 60%)
-             if (confidenceScore >= 60) {
-                statEvaluations.push({
-                   category: displayCat,
-                   avg: baseAvg.toString(),
-                   projectedTarget: projectedTarget,
-                   call: call,
-                   color: color,
-                   rank: oppPitcher.era,
-                   confidence: confidenceScore,
-                   oppDesc: `vs ${oppPitcher.hand}HP (${oppPitcher.era.toFixed(2)} ERA)${restText}`,
-                   streakDesc: streakText,
-                   spatialDesc: spatialText,
-                   memoryDesc: memoryText
-                });
-             }
-          });
+              // Phase 3: Apply Learned Adjustments
+              let learnedModifier = 0;
+              if (learnedAdj[`overall_${displayCat}`]) learnedModifier += learnedAdj[`overall_${displayCat}`];
+              if (learnedAdj[isHomePlayer ? `home_${displayCat}` : `away_${displayCat}`]) learnedModifier += learnedAdj[isHomePlayer ? `home_${displayCat}` : `away_${displayCat}`];
+              if (oppAbbr && learnedAdj[`vs_${oppAbbr}_${displayCat}`]) learnedModifier += learnedAdj[`vs_${oppAbbr}_${displayCat}`];
+              learnedModifier = Math.max(-0.12, Math.min(0.12, learnedModifier));
+              if (Math.abs(learnedModifier) > 0.005) {
+                 projectedTarget = Math.max(0, +(projectedTarget * (1 + learnedModifier)).toFixed(1));
+              }
+
+              let historyStr = "";
+              let numAccuracy = null;
+              const pHistory = autopsyHistory[hitter.id]?.[displayCat];
+              if (pHistory && pHistory.total > 0) {
+                  const hitRate = pHistory.hits / pHistory.total;
+                  numAccuracy = hitRate;
+                  const sampleWeight = Math.min(1.0, (pHistory.total - 2) / 8);
+                  
+                  if (pHistory.total >= 3 && hitRate < 0.4) {
+                      confidenceScore -= Math.round(15 * sampleWeight);
+                      historyStr = ` Proceed with caution. Historical struggle (${(hitRate * 100).toFixed(0)}% accuracy).`;
+                  } else if (pHistory.total >= 3 && hitRate > 0.8) {
+                      confidenceScore += Math.round(10 * sampleWeight);
+                      historyStr = ` Historical lock (${(hitRate * 100).toFixed(0)}% accuracy).`;
+                  }
+                  
+                  const oppAbbr = oppName.substring(0, 3).toUpperCase();
+                  const oppSplits = pHistory.opponentSplits?.[oppAbbr];
+                  if (oppSplits && (oppSplits.hits + oppSplits.misses >= 3)) {
+                      const oppHitRate = oppSplits.hits / (oppSplits.hits + oppSplits.misses);
+                      if (oppHitRate <= 0.25) {
+                          confidenceScore -= Math.round(25 * sampleWeight); 
+                          historyStr += ` 👻 Auto-Corrected: Poor historical accuracy predicting against ${oppAbbr}.`;
+                          call = call.includes('OVER') ? 'UNDER' : 'OVER'; 
+                          color = call === 'OVER' ? '#4ade80' : '#ef4444';
+                      } else if (oppHitRate >= 0.75) {
+                          confidenceScore += Math.round(15 * sampleWeight);
+                          historyStr += ` 🎯 Genius Lock: Very high accuracy predicting against ${oppAbbr}.`;
+                      }
+                  }
+                  
+                  const homeGames = pHistory.homeHits + pHistory.homeMisses;
+                  const awayGames = pHistory.awayHits + pHistory.awayMisses;
+                  if (isHomePlayer && homeGames >= 3) {
+                      const homeRate = pHistory.homeHits / homeGames;
+                      if (homeRate <= 0.3) { confidenceScore -= Math.round(20 * sampleWeight); historyStr += ` 👻 Auto-Corrected: Low Home accuracy.`; }
+                      else if (homeRate >= 0.8) { confidenceScore += Math.round(10 * sampleWeight); }
+                  } else if (!isHomePlayer && awayGames >= 3) {
+                      const awayRate = pHistory.awayHits / awayGames;
+                      if (awayRate <= 0.3) { confidenceScore -= Math.round(20 * sampleWeight); historyStr += ` 👻 Auto-Corrected: Low Road accuracy.`; }
+                      else if (awayRate >= 0.8) { confidenceScore += Math.round(10 * sampleWeight); }
+                  }
+              }
+
+              const callDirection = call.includes('OVER') ? 'OVER' : 'UNDER';
+              const memoryText = `👻 Ghhost Prediction: ${callDirection} for today. Pinpoint projection: ${projectedTarget} ${displayCat}.${historyStr}`;
+
+              if (confidenceScore >= 60) {
+                 statEvaluations.push({
+                    category: displayCat,
+                    avg: baseAvg.toString(),
+                    projectedTarget: projectedTarget,
+                    call: call,
+                    color: color,
+                    rank: oppPitcher.era,
+                    confidence: confidenceScore,
+                    oppDesc: `vs ${oppPitcher.hand}HP (${oppPitcher.era.toFixed(2)} ERA)${restText}${weatherText}`,
+                    streakDesc: streakText,
+                    spatialDesc: spatialText,
+                    memoryDesc: memoryText,
+                    historicalAccuracy: numAccuracy,
+                    totalGames: pHistory ? pHistory.total : 0
+                 });
+              }
+           });
 
           if (statEvaluations.length > 0) {
              playerPredictions.push({
@@ -352,94 +603,154 @@ export async function GET(request) {
            if (!pProfile || !pProfile.gameLogs || pProfile.gameLogs.length === 0) return;
 
            const gameLogs = pProfile.gameLogs;
-           const recent = gameLogs.slice(0, 10);
-           
-           const calcAvg = (arr, stat) => arr.length > 0 ? (arr.reduce((acc, l) => acc + parseInt(l.stat[stat]||0), 0) / arr.length).toFixed(1) : 0;
-           const seasonK = parseFloat(calcAvg(gameLogs, 'strikeOuts'));
-           const seasonER = parseFloat(calcAvg(gameLogs, 'earnedRuns'));
-           
-           if (seasonK === 0) return; // Not enough data
            
            const statEvaluations = [];
            
-           ['strikeOuts', 'earnedRuns'].forEach(statCat => {
-              const displayCat = statCat === 'strikeOuts' ? 'K' : 'ER';
-              const targetLine = statCat === 'strikeOuts' ? 5.5 : 2.5; // Standard Pitcher Props
-              
-              let call = 'UNDER';
-              let color = '#ef4444';
-              let confidenceScore = 50;
-              
-              let overCount = 0;
-              let underCount = 0;
-              recent.forEach(log => {
-                 const val = parseInt(log.stat[statCat]) || 0;
-                 if (val > targetLine) overCount++;
-                 else underCount++;
-              });
-              
-              // Base evaluation
-              if (statCat === 'strikeOuts' && seasonK > 6) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
-              if (statCat === 'earnedRuns' && seasonER > 3.5) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
-              if (statCat === 'earnedRuns' && pProfile.era < 3.20) { call = 'STRONG UNDER'; color = '#ef4444'; confidenceScore += 15; }
-              
-              // Momentum
-              let streakText = "";
-              if (call.includes('OVER') && overCount >= 7) { confidenceScore += 15; streakText = `🔥 Dominant: Over in ${overCount} of last ${recent.length}`; }
-              else if (call.includes('UNDER') && underCount >= 7) { confidenceScore += 15; streakText = `🧊 Shutdown: Under in ${underCount} of last ${recent.length}`; }
-              
-              // Gambler's Fallacy
-              if (call.includes('OVER') && overCount >= 9) {
-                  confidenceScore -= 20; 
-                  call = 'UNDER'; 
-                  color = '#f87171';
-                  streakText = `👻 Regression Alert: Reverting after ${overCount} straight Overs`;
-              }
-              
-              if (confidenceScore < 60) call = call.replace('STRONG ', '');
-              if (confidenceScore > 99) confidenceScore = 99;
-              if (confidenceScore < 1) confidenceScore = 1;
+           ['strikeOuts', 'earnedRuns', 'hitsAllowed', 'baseOnBalls', 'inningsPitched'].forEach(statCat => {
+                const displayCatMap = { strikeOuts: 'K', earnedRuns: 'ER', hitsAllowed: 'HA', baseOnBalls: 'BB', inningsPitched: 'IP' };
+                const displayCat = displayCatMap[statCat];
+                const targetLineMap = { strikeOuts: 5.5, earnedRuns: 2.5, hitsAllowed: 5.5, baseOnBalls: 2.5, inningsPitched: 5.0 };
+                const targetLine = targetLineMap[statCat];
+                // For hitsAllowed, the gameLog stat key is 'hits' (in the pitching stat group)
+                const gameLogKey = statCat === 'hitsAllowed' ? 'hits' : statCat;
+                
+                let call = 'UNDER';
+                let color = '#ef4444';
+                let confidenceScore = 50;
 
-              let multiplier = 1.0;
-              if (call.includes('STRONG OVER')) multiplier = 1.35;
-              else if (call.includes('OVER')) multiplier = 1.18;
-              else if (call.includes('STRONG UNDER')) multiplier = 0.55;
-              else if (call.includes('UNDER')) multiplier = 0.82;
+                // Pitcher Projection Data
+                const gamesStarted = gameLogs.length;
+                const seasonAvg = gameLogs.reduce((s, g) => {
+                   const raw = g.stat[gameLogKey];
+                   // inningsPitched comes as string like '6.0', parse with parseFloat
+                   return s + (statCat === 'inningsPitched' ? (parseFloat(raw) || 0) : (parseInt(raw) || 0));
+                }, 0) / gamesStarted;
+                
+                if (gamesStarted < 2) return; // Not enough data
 
-              const projectedTarget = +(targetLine * multiplier).toFixed(1);
+                const recentStarts = gameLogs.slice(0, 5);
+                const recentAvg = recentStarts.reduce((s, g) => {
+                   const raw = g.stat[gameLogKey];
+                   return s + (statCat === 'inningsPitched' ? (parseFloat(raw) || 0) : (parseInt(raw) || 0));
+                }, 0) / recentStarts.length;
 
-              let historyStr = "";
-              const pHistory = autopsyHistory[pitcher.id]?.[displayCat];
-              if (pHistory && pHistory.total > 0) {
-                 const hitRate = pHistory.hits / pHistory.total;
-                 if (pHistory.total >= 3 && hitRate < 0.4) {
-                     confidenceScore -= 15;
-                     historyStr = ` Struggle History (${(hitRate * 100).toFixed(0)}% accuracy).`;
-                 } else if (pHistory.total >= 3 && hitRate > 0.8) {
-                     confidenceScore += 10;
-                     historyStr = ` Highly Reliable (${(hitRate * 100).toFixed(0)}% accuracy).`;
-                 }
-              }
+                let baseProjection = (seasonAvg * 0.4 + recentAvg * 0.6);
+                
+                // Base evaluation per stat
+                // K OVER = good (strikeout pitcher), ER OVER = bad, HA OVER = bad, BB OVER = bad, IP OVER = good
+                if (statCat === 'strikeOuts' && seasonAvg > 6) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
+                if (statCat === 'earnedRuns' && seasonAvg > 3.5) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
+                if (statCat === 'earnedRuns' && pProfile.era < 3.20) { call = 'STRONG UNDER'; color = '#ef4444'; confidenceScore += 15; }
+                if (statCat === 'hitsAllowed' && seasonAvg > 6) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
+                if (statCat === 'hitsAllowed' && pProfile.era < 3.20) { call = 'STRONG UNDER'; color = '#ef4444'; confidenceScore += 10; }
+                if (statCat === 'baseOnBalls' && seasonAvg > 3.5) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
+                if (statCat === 'baseOnBalls' && seasonAvg < 1.5) { call = 'STRONG UNDER'; color = '#ef4444'; confidenceScore += 10; }
+                if (statCat === 'inningsPitched' && seasonAvg > 5.5) { call = 'OVER'; color = '#4ade80'; confidenceScore += 10; }
+                if (statCat === 'inningsPitched' && seasonAvg < 4.5) { call = 'UNDER'; color = '#ef4444'; confidenceScore += 10; }
+                
+                // Momentum
+                let streakText = "";
+                const recent = gameLogs.slice(0, 10);
+                let overCount = 0;
+                let underCount = 0;
+                recent.forEach(log => {
+                   const raw = log.stat[gameLogKey];
+                   const val = statCat === 'inningsPitched' ? (parseFloat(raw) || 0) : (parseInt(raw) || 0);
+                   if (val > targetLine) overCount++;
+                   else underCount++;
+                });
+                if (call.includes('OVER') && overCount >= 7) { confidenceScore += 15; streakText = `🔥 Dominant: Over in ${overCount} of last ${recent.length}`; }
+                else if (call.includes('UNDER') && underCount >= 7) { confidenceScore += 15; streakText = `🧊 Shutdown: Under in ${underCount} of last ${recent.length}`; }
+                
+                // Gambler's Fallacy
+                if (call.includes('OVER') && overCount >= 9) {
+                    confidenceScore -= 20; 
+                    call = 'UNDER'; 
+                    color = '#ef4444';
+                    streakText = `👻 Regression Alert: Reverting after ${overCount} straight Overs`;
+                }
+                
+                if (confidenceScore < 60) call = call.replace('STRONG ', '');
+                if (confidenceScore > 99) confidenceScore = 99;
+                if (confidenceScore < 1) confidenceScore = 1;
 
-              const callDirection = call.includes('OVER') ? 'OVER' : 'UNDER';
-              const memoryText = `👻 Ghhost Prediction: ${callDirection} for today. Pinpoint projection: ${projectedTarget} ${displayCat}.${historyStr}`;
+                // Confidence scaling for projection
+                const confidenceScale = 1.0 + ((confidenceScore - 50) / 500);
+                let projectedTarget = Math.max(0, +(baseProjection * confidenceScale).toFixed(1));
 
-              if (confidenceScore >= 60) {
-                 statEvaluations.push({
-                    category: displayCat,
-                    avg: targetLine.toString(),
-                    projectedTarget: projectedTarget,
-                    call: call,
-                    color: color,
-                    rank: pProfile.era,
-                    confidence: confidenceScore,
-                    oppDesc: `vs ${oppName}`,
-                    streakDesc: streakText,
-                    spatialDesc: `Season ERA: ${pProfile.era.toFixed(2)}`,
-                    memoryDesc: memoryText
-                 });
-              }
-           });
+                // Phase 3: Apply Learned Adjustments
+                let learnedModifier = 0;
+                if (learnedAdj[`overall_${displayCat}`]) learnedModifier += learnedAdj[`overall_${displayCat}`];
+                if (learnedAdj[isHomePlayer ? `home_${displayCat}` : `away_${displayCat}`]) learnedModifier += learnedAdj[isHomePlayer ? `home_${displayCat}` : `away_${displayCat}`];
+                learnedModifier = Math.max(-0.12, Math.min(0.12, learnedModifier));
+                if (Math.abs(learnedModifier) > 0.005) {
+                   projectedTarget = Math.max(0, +(projectedTarget * (1 + learnedModifier)).toFixed(1));
+                }
+
+                let historyStr = "";
+                let numAccuracy = null;
+                const pHistory = autopsyHistory[pitcher.id]?.[displayCat];
+                if (pHistory && pHistory.total > 0) {
+                   const hitRate = pHistory.hits / pHistory.total;
+                   numAccuracy = hitRate;
+                   const sampleWeight = Math.min(1.0, (pHistory.total - 2) / 8);
+                   if (pHistory.total >= 3 && hitRate < 0.4) {
+                       confidenceScore -= Math.round(15 * sampleWeight);
+                       historyStr = ` Struggle History (${(hitRate * 100).toFixed(0)}% accuracy).`;
+                   } else if (pHistory.total >= 3 && hitRate > 0.8) {
+                       confidenceScore += Math.round(10 * sampleWeight);
+                       historyStr = ` Highly Reliable (${(hitRate * 100).toFixed(0)}% accuracy).`;
+                   }
+
+                   const oppAbbr = oppName.substring(0, 3).toUpperCase();
+                   const oppSplits = pHistory.opponentSplits?.[oppAbbr];
+                   if (oppSplits && oppSplits.hits + oppSplits.misses >= 3) {
+                       const oppHitRate = oppSplits.hits / (oppSplits.hits + oppSplits.misses);
+                       if (oppHitRate <= 0.25) {
+                           confidenceScore -= Math.round(25 * sampleWeight); 
+                           historyStr += ` 👻 Auto-Corrected: Poor historical accuracy predicting against ${oppAbbr}.`;
+                           call = call.includes('OVER') ? 'UNDER' : 'OVER'; 
+                           color = call === 'OVER' ? '#4ade80' : '#ef4444';
+                       } else if (oppHitRate >= 0.75) {
+                           confidenceScore += Math.round(15 * sampleWeight);
+                           historyStr += ` 🎯 Genius Lock: Very high accuracy predicting against ${oppAbbr}.`;
+                       }
+                   }
+
+                   const homeGames = pHistory.homeHits + pHistory.homeMisses;
+                   const awayGames = pHistory.awayHits + pHistory.awayMisses;
+                   if (isHomePlayer && homeGames >= 3) {
+                       const homeRate = pHistory.homeHits / homeGames;
+                       if (homeRate <= 0.3) { confidenceScore -= Math.round(20 * sampleWeight); historyStr += ` 👻 Auto-Corrected: Low accuracy at Home.`; }
+                       else if (homeRate >= 0.8) { confidenceScore += Math.round(10 * sampleWeight); }
+                   } else if (!isHomePlayer && awayGames >= 3) {
+                       const awayRate = pHistory.awayHits / awayGames;
+                       if (awayRate <= 0.3) { confidenceScore -= Math.round(20 * sampleWeight); historyStr += ` 👻 Auto-Corrected: Low accuracy on the Road.`; }
+                       else if (awayRate >= 0.8) { confidenceScore += Math.round(10 * sampleWeight); }
+                   }
+                }
+
+                const callDirection = call.includes('OVER') ? 'OVER' : 'UNDER';
+                const memoryText = `👻 Ghhost Prediction: ${callDirection} for today. Pinpoint projection: ${projectedTarget} ${displayCat}.${historyStr}`;
+
+                if (confidenceScore >= 60) {
+                   statEvaluations.push({
+                      category: displayCat,
+                      avg: targetLine.toString(),
+                      projectedTarget: projectedTarget,
+                      call: call,
+                      color: color,
+                      rank: pProfile.era,
+                      confidence: confidenceScore,
+                      oppDesc: `vs ${oppName}`,
+                      streakDesc: streakText,
+                      spatialDesc: `Season ERA: ${pProfile.era.toFixed(2)}`,
+                      memoryDesc: memoryText,
+                      historicalAccuracy: numAccuracy,
+                      totalGames: pHistory ? pHistory.total : 0
+                   });
+                }
+            });
            
            if (statEvaluations.length > 0) {
               playerPredictions.push({
@@ -466,10 +777,22 @@ export async function GET(request) {
     // Log predictions to the Memory Vault asynchronously
     logPredictionsToVault('MLB', playerPredictions).catch(console.error);
 
-    return NextResponse.json({
+    const payload = {
        matchups: todayMatchups,
        players: playerPredictions
-    });
+    };
+
+    try {
+       await prisma.dailyCache.upsert({
+          where: { sport_gameDate: { sport: 'MLB', gameDate } },
+          update: { timestamp: Date.now(), payload: payload },
+          create: { sport: 'MLB', gameDate, timestamp: Date.now(), payload: payload }
+       });
+    } catch (e) {
+       console.error('Failed to write cache', e);
+    }
+
+    return NextResponse.json(payload);
 
   } catch (error) {
     console.error(error);

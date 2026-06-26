@@ -3,11 +3,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import CourtMap from '@/components/CourtMap';
 import TrendGraph from '@/components/TrendGraph';
-import { usePro } from '@/context/ProContext';
-import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle } from 'lucide-react';
+import StatLegend from '@/components/StatLegend';
+import { useSession } from 'next-auth/react';
+import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Lock, Ghost } from 'lucide-react';
 
 export default function Home() {
-  const { isPro } = usePro();
+  const { data: session } = useSession();
+  const isPro = session?.user?.isPro;
   const [players, setPlayers] = useState([]);
   const [teams, setTeams] = useState([]);
   
@@ -365,6 +367,31 @@ export default function Home() {
 
   const activeSearchList = mode === 'PLAYER' ? players : teams;
 
+  const geniusBoard = useMemo(() => {
+     if (!predictionsData?.players) return [];
+     const candidates = [];
+     predictionsData.players.forEach(p => {
+        p.evaluations.forEach(ev => {
+           if (ev.historicalAccuracy !== null && ev.historicalAccuracy !== undefined && ev.historicalAccuracy >= 0.65 && (ev.totalGames || 0) >= 5) {
+              candidates.push({
+                 player: p.player,
+                 team: p.team,
+                 opponent: p.opponentAbbr,
+                 category: ev.category,
+                 call: ev.call,
+                 accuracy: (ev.historicalAccuracy * 100).toFixed(0),
+                 totalGames: ev.totalGames || 0
+              });
+           }
+        });
+     });
+     return candidates.sort((a, b) => {
+        const scoreA = (a.accuracy / 100) * Math.log2(a.totalGames + 1);
+        const scoreB = (b.accuracy / 100) * Math.log2(b.totalGames + 1);
+        return scoreB - scoreA;
+     }).slice(0, 5);
+  }, [predictionsData]);
+
   return (
     <main className="main-container">
       <header className="header">
@@ -514,10 +541,53 @@ export default function Home() {
       {/* PREDICTOR VIEW */}
       {mode === 'PREDICTOR' && (
         <div style={{maxWidth: '1200px', margin: '0 auto'}}>
-          {predictorLoading && <div className="loading" style={{marginTop: '50px'}}><Activity size={48} style={{display:'block', margin:'0 auto', marginBottom:'10px', color:'#f59e0b'}}/> Evaluating Statistical Defenses vs Starting Rosters...</div>}
+          {predictorLoading && (
+            <div style={{ marginTop: '50px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+                <Activity size={48} style={{ display: 'block', margin: '0 auto', marginBottom: '10px', color: '#f59e0b', animation: 'pulse 1.5s infinite' }} />
+                <div style={{ color: 'var(--text-muted)' }}>Evaluating Statistical Defenses vs Starting Rosters...</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 360px), 1fr))', gap: '20px' }}>
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="glass-panel skeleton skeleton-card"></div>
+                ))}
+              </div>
+            </div>
+          )}
           
           {!predictorLoading && predictionsData?.matchups && (
              <div style={{marginBottom: '40px', textAlign: 'center'}}>
+                {geniusBoard.length > 0 && (
+                   <div style={{ marginBottom: '30px', padding: '20px', background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.05))', borderRadius: '16px', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px' }}>
+                         <Lock size={24} color="#22c55e" />
+                         <h2 style={{ fontSize: '1.5rem', color: 'white', margin: 0 }}>Genius Accuracy Board</h2>
+                      </div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                         Auto-correcting historical performance log. These are the top {geniusBoard.length} players the engine predicts with the highest historical accuracy.
+                      </p>
+                      <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px' }}>
+                         {geniusBoard.map((gb, i) => (
+                            <div key={i} style={{ minWidth: '220px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--panel-border)', textAlign: 'left' }}>
+                               <div style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 700, marginBottom: '4px' }}>Rank #{i+1}</div>
+                               <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'white', marginBottom: '4px' }}>{gb.player}</div>
+                               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>{gb.team} vs {gb.opponent}</div>
+                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div>
+                                     <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{gb.category}</span>
+                                     <div style={{ fontSize: '0.7rem', color: gb.call.includes('OVER') ? '#4ade80' : '#ef4444', fontWeight: 800 }}>{gb.call}</div>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#22c55e' }}>{gb.accuracy}%</div>
+                                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Hit Rate</div>
+                                  </div>
+                               </div>
+                            </div>
+                         ))}
+                      </div>
+                   </div>
+                )}
+             
                 <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>
                 <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px', flexWrap: 'wrap'}}>
                   {predictionsData.matchups.map((m, i) => {
@@ -540,16 +610,7 @@ export default function Home() {
                   })}
                 </div>
                 
-                <div style={{marginTop: '24px', padding: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', display: 'inline-block', textAlign: 'left', border: '1px solid var(--panel-border)'}}>
-                  <h3 style={{fontSize: '0.9rem', marginBottom: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em'}}>Prediction Glossary (Based on Opponent Defensive Rank)</h3>
-                  <div style={{display: 'flex', gap: '20px', fontSize: '0.85rem', flexWrap: 'wrap', justifyContent: 'center'}}>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#22c55e'}}></div> <strong>Strong Over:</strong> Opponent Ranks 1-5 (Worst Defense)</div>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#4ade80'}}></div> <strong>Over:</strong> Opponent Ranks 6-15 (Below Average)</div>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#f87171'}}></div> <strong>Under:</strong> Opponent Ranks 16-25 (Above Average)</div>
-                     <div style={{display: 'flex', alignItems: 'center', gap: '8px'}}><div style={{width: '12px', height: '12px', borderRadius: '50%', background: '#ef4444'}}></div> <strong>Strong Under:</strong> Opponent Ranks 26-30 (Elite Defense)</div>
-                  </div>
-                  <p style={{fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '12px', textAlign: 'center'}}>*Rank 1 means the opponent gives up the MOST of a given stat (best for player), Rank 30 gives up the LEAST (worst for player).</p>
-                </div>
+                <StatLegend sport="NBA" />
              </div>
           )}
 
@@ -580,16 +641,25 @@ export default function Home() {
                         transform: isFullFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)'
                      }}>
                        {/* FRONT OF FULL CARD */}
-                       <div className="glass-panel" style={{ backfaceVisibility: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--panel-border)', paddingBottom: '10px' }}>
-                             <div>
-                                <h3 style={{fontSize: '1.3rem'}}>{p.player}</h3>
-                                <span style={{color: 'var(--text-muted)', fontSize: '0.85rem'}}>{p.team} vs {p.opponent} ({p.isHome ? 'Home' : 'Away'})</span>
-                             </div>
-                             <button onClick={() => handleFullCardFlip(p.playerId)} style={{background: 'transparent', border: '1px solid var(--accent)', color: 'white', padding: '6px 12px', borderRadius: '6px', fontSize: '0.8rem', cursor: 'pointer', transition: '0.2s'}}>
-                                📈 Flip to Trend
-                             </button>
-                          </div>
+                       <div className="glass-panel"
+                           onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px)'; e.currentTarget.style.boxShadow = '0 16px 48px rgba(249,115,22,0.12)'; }}
+                           onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.3)'; }}
+                           style={{ 
+                              backfaceVisibility: 'hidden', display: 'flex', flexDirection: 'column',
+                              background: 'linear-gradient(145deg, rgba(20,20,35,0.95), rgba(12,12,25,0.98))',
+                              border: '1px solid rgba(249,115,22,0.15)',
+                              boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+                              transition: 'transform 0.3s ease, box-shadow 0.3s ease'
+                           }}>
+                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)', paddingBottom: '12px' }}>
+                              <div>
+                                 <h3 style={{fontSize: '1.15rem', fontWeight: 800, letterSpacing: '-0.02em', margin: '0 0 2px 0'}}>{p.player}</h3>
+                                 <span style={{color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 500}}>{p.team} vs {p.opponent} ({p.isHome ? 'Home' : 'Away'})</span>
+                              </div>
+                              <button onClick={() => handleFullCardFlip(p.playerId)} style={{background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.3)', color: '#fb923c', padding: '7px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', transition: '0.3s', letterSpacing: '0.02em'}}>
+                                 📈 Flip to Trend
+                              </button>
+                           </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                          {p.evaluations.map(ev => {
@@ -622,19 +692,19 @@ export default function Home() {
                                   }}>
                                      {/* FRONT OF CARD */}
                                      <div style={{
-                                        position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
-                                        background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', 
-                                        border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column'
-                                     }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 }}>{ev.category}</span>
-                                           <span style={{ fontSize: '0.7rem', color: ev.color, fontWeight: 800, padding: '2px 6px', background: `${ev.color}20`, borderRadius: '4px' }}>
-                                              {ev.call}
-                                           </span>
-                                        </div>
-                                        <div style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '2px' }}>{ev.avg}</div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
-                                     </div>
+                                         position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
+                                         background: 'rgba(255,255,255,0.03)', padding: '10px 12px', borderRadius: '10px', 
+                                         border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column'
+                                      }}>
+                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                            <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{ev.category}</span>
+                                            <span style={{ fontSize: '0.6rem', color: ev.color, fontWeight: 800, padding: '3px 10px', background: `${ev.color}18`, borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.03em', border: `1px solid ${ev.color}30` }}>
+                                               {ev.call}
+                                            </span>
+                                         </div>
+                                         <div style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '2px', letterSpacing: '-0.02em' }}>{ev.avg}</div>
+                                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
+                                      </div>
 
                                      {/* BACK OF CARD */}
                                      <div style={{
@@ -686,7 +756,7 @@ export default function Home() {
                                    color: al.type === 'memory' ? '#f472b6' : '#f59e0b',
                                    border: al.type === 'memory' ? '1px solid rgba(236, 72, 153, 0.3)' : '1px solid rgba(245, 158, 11, 0.3)'
                                 }}>
-                                   <strong>{al.cat}:</strong> {al.type === 'memory' ? '👻' : '⚠️'} {al.desc.replace(/[👻🔥🧊⚠️]/g, '').trim()}
+                                   <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>{al.cat}:</strong> {al.type === 'memory' ? <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginRight: '4px' }}><Ghost size={16} /></span> : '⚠️'} {al.desc.replace(/[👻🔥🧊⚠️]/g, '').trim()}
                                 </div>
                              ))}
                           </div>
@@ -795,6 +865,17 @@ export default function Home() {
                       <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.95rem', lineHeight: '1.5', maxWidth: '80%' }}>
                          Ghhost Pro members get access to unlimited daily predictions, deep spatial heatmaps, and the AI Autopsy Memory Engine.
                       </p>
+                      {session ? (
+                         <form action="/api/stripe/checkout" method="POST">
+                           <button type="submit" style={{ marginTop: '10px', background: 'white', color: 'black', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer', border: 'none' }}>
+                             Subscribe to Ghhost Pro - $19.99/mo
+                           </button>
+                         </form>
+                      ) : (
+                         <a href="/login" style={{ marginTop: '10px', textDecoration: 'none', background: 'white', color: 'black', padding: '12px 24px', borderRadius: '8px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer' }}>
+                           Sign In to Subscribe
+                         </a>
+                      )}
                    </div>
                 </div>
              )}
@@ -850,11 +931,11 @@ export default function Home() {
                                          value={trendData.stat} 
                                          onChange={(e) => setPlayerLogsData(prev => ({...prev, [p.playerId]: {...prev[p.playerId], stat: e.target.value}}))}
                                        >
-                                         {['PTS','REB','AST','STL','BLK','TOV','3PM'].map(s => <option key={s} value={s}>{s}</option>)}
+                                          {['PTS','REB','AST','STL','BLK','TOV','3PM','PRA'].map(s => <option key={s} value={s}>{s}</option>)}
                                        </select>
                                      </div>
                                    </div>
-                                   <div style={{ flex: 1, minHeight: '400px' }}>
+                                   <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
                                      <TrendGraph logs={trendData.logs} statKey={trendData.stat === '3PM' ? 'FG3M' : trendData.stat} />
                                    </div>
                                  </>

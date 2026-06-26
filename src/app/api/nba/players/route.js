@@ -12,19 +12,26 @@ export async function GET(request) {
       Season: season
     });
 
-    // The NBA API returns data in a 'resultSets' array where rowSets contains the actual rows.
-    // [0][0] is PERSON_ID, [0][2] is DISPLAY_FIRST_LAST
     const playersInfo = data.resultSets[0];
     const headers = playersInfo.headers;
     const idIdx = headers.indexOf('PERSON_ID');
     const nameIdx = headers.indexOf('DISPLAY_FIRST_LAST');
     const teamIdx = headers.indexOf('TEAM_ABBREVIATION');
+    const rosterIdx = headers.indexOf('ROSTERSTATUS');
 
-    const formattedPlayers = playersInfo.rowSet.map(row => ({
-      id: row[idIdx],
-      name: row[nameIdx],
-      team: row[teamIdx],
-    }));
+    // Only include players currently on an active roster (ROSTERSTATUS = 1)
+    // Also filter out players with no team assignment (free agents, retired)
+    const formattedPlayers = playersInfo.rowSet
+      .filter(row => {
+        const rosterStatus = row[rosterIdx];
+        const team = row[teamIdx];
+        return rosterStatus === 1 && team && team.trim() !== '';
+      })
+      .map(row => ({
+        id: row[idIdx],
+        name: row[nameIdx],
+        team: row[teamIdx],
+      }));
 
     return NextResponse.json(formattedPlayers);
   } catch (error) {

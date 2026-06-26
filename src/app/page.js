@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePro } from '@/context/ProContext';
 import TransparencyWindow from '@/components/TransparencyWindow';
+import { Ghost } from 'lucide-react';
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -10,43 +11,60 @@ export default function Home() {
   const [topUnders, setTopUnders] = useState([]);
   const [activeTab, setActiveTab] = useState('OVERS'); // 'OVERS' or 'UNDERS'
   const [showHistory, setShowHistory] = useState(false);
+  const [globalLocks, setGlobalLocks] = useState([]);
   const { isPro } = usePro();
 
   useEffect(() => {
+    // 1. Fetch Global Top 20 Instantly
+    fetch('/api/global/top20')
+      .then(res => res.json())
+      .then(globalData => {
+         if (globalData.topLocks) {
+            setGlobalLocks(globalData.topLocks);
+         }
+      })
+      .catch(console.error);
+
+    // 2. Run the Grader silently in the background so Actual Results stay updated
+    fetch('/api/memory/grade').catch(() => {});
+
+    // 3. Silently warm ALL sport caches so the Genius Board covers every sport
+    fetch('/api/mlb/predictToday').catch(() => {});
+    fetch('/api/wnba/predictToday').catch(() => {});
+    fetch('/api/nfl/predictToday').catch(() => {});
+
+    // 3. Fetch NBA Predictions (Heavy, takes longer)
     fetch('/api/nba/predictToday')
       .then(res => res.json())
-      .then(data => {
-        if (!data.players) { setLoading(false); return; }
-        
-        let allEvals = [];
-        data.players.forEach(p => {
-           p.evaluations.forEach(ev => {
-              allEvals.push({ 
-                 ...ev, 
-                 player: p.player, 
-                 team: p.team, 
-                 opponent: p.opponentAbbr, 
-                 isHome: p.isHome 
-              });
-           });
-        });
-        
-        const strongOvers = allEvals
-            .filter(e => e.call === 'STRONG OVER')
-            .sort((a,b) => b.confidence !== a.confidence ? b.confidence - a.confidence : a.rank - b.rank);
-            
-        const strongUnders = allEvals
-            .filter(e => e.call === 'STRONG UNDER')
-            .sort((a,b) => b.confidence !== a.confidence ? b.confidence - a.confidence : b.rank - a.rank);
+      .then(nbaData => {
+         if (!nbaData.players) { setLoading(false); return; }
+         
+         let allEvals = [];
+         nbaData.players.forEach(p => {
+            p.evaluations.forEach(ev => {
+               allEvals.push({ 
+                  ...ev, 
+                  player: p.player, 
+                  team: p.team, 
+                  opponent: p.opponentAbbr, 
+                  isHome: p.isHome 
+               });
+            });
+         });
+         
+         const strongOvers = allEvals
+             .filter(e => e.call === 'STRONG OVER')
+             .sort((a,b) => b.confidence !== a.confidence ? b.confidence - a.confidence : a.rank - b.rank);
+             
+         const strongUnders = allEvals
+             .filter(e => e.call === 'STRONG UNDER')
+             .sort((a,b) => b.confidence !== a.confidence ? b.confidence - a.confidence : b.rank - a.rank);
 
-        setTopOvers(strongOvers.slice(0, 5));
-        setTopUnders(strongUnders.slice(0, 5));
-        setLoading(false);
+         setTopOvers(strongOvers.slice(0, 5));
+         setTopUnders(strongUnders.slice(0, 5));
+         setLoading(false);
       })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
+      .catch(() => setLoading(false));
   }, []);
 
   const renderPredictionCard = (pred, index) => {
@@ -122,8 +140,8 @@ export default function Home() {
               )}
               {/* Ghhost Prediction Pinpoint Badge at the bottom in Pink */}
               {pred.memoryDesc && (
-                 <div className="context-badge" style={{ background: 'rgba(236, 72, 153, 0.1)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#f472b6' }}>
-                    <span style={{ fontSize: '1rem' }}>👻</span> 
+                 <div className="context-badge" style={{ background: 'rgba(236, 72, 153, 0.1)', border: '1px solid rgba(236, 72, 153, 0.3)', color: '#f472b6', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <Ghost size={16} /> 
                     {pred.memoryDesc.replace(/[👻]/g, '').trim()}
                  </div>
               )}
@@ -161,8 +179,11 @@ export default function Home() {
                <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: 'white' }}>Daily Plays</h2>
                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Swipe to view</span>
             </div>
-            <button onClick={() => setShowHistory(!showHistory)} style={{ background: showHistory ? 'rgba(236, 72, 153, 0.1)' : 'transparent', border: '1px solid #f472b6', color: '#f472b6', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
-               👻 {showHistory ? 'Hide Brain History' : 'View Brain History'}
+            <button 
+               onClick={() => setShowHistory(!showHistory)}
+               style={{ background: 'rgba(236, 72, 153, 0.15)', border: '1px solid #f472b6', color: '#f472b6', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+               <Ghost size={18} /> {showHistory ? 'Hide Brain History' : 'View Brain History'}
             </button>
          </div>
 
@@ -172,6 +193,56 @@ export default function Home() {
             </div>
          ) : (
             <>
+               {/* GLOBAL GENIUS BOARD */}
+               {globalLocks.length > 0 && (
+                  <div style={{ margin: '0 20px 30px', padding: '20px', background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.05))', borderRadius: '16px', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px' }}>
+                        <span style={{ fontSize: '1.5rem' }}>🧠</span>
+                        <h2 style={{ fontSize: '1.5rem', color: 'white', margin: 0 }}>Top 20 Global Genius Board</h2>
+                     </div>
+                     <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px', textAlign: 'center' }}>
+                        Auto-correcting historical performance log. These are the highest precision locks across ALL live sports today.
+                     </p>
+                     <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px', scrollSnapType: 'x mandatory' }}>
+                        {globalLocks.map((gb, i) => {
+                           const sportColor = gb.sport === 'NBA' ? '#f97316' : gb.sport === 'MLB' ? '#3b82f6' : gb.sport === 'WNBA' ? '#ec4899' : '#10b981';
+                           const isOver = gb.call.includes('OVER');
+                           return (
+                           <div key={i} 
+                              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)'; e.currentTarget.style.boxShadow = `0 16px 48px ${sportColor}22`; }}
+                              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4)'; }}
+                              style={{ 
+                                 minWidth: '260px', scrollSnapAlign: 'start', 
+                                 background: 'linear-gradient(145deg, rgba(20,20,35,0.95), rgba(10,10,20,0.98))', 
+                                 borderRadius: '16px', padding: '18px', 
+                                 border: `1px solid ${sportColor}33`,
+                                 textAlign: 'left', position: 'relative',
+                                 boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                                 transition: 'transform 0.3s ease, box-shadow 0.3s ease'
+                              }}>
+                              <div style={{ position: 'absolute', top: '-10px', right: '-10px', background: `linear-gradient(135deg, ${sportColor}, ${sportColor}cc)`, color: 'white', padding: '4px 12px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.05em', boxShadow: `0 4px 12px ${sportColor}44` }}>
+                                 {gb.sport}
+                              </div>
+                              <div style={{ fontSize: '0.7rem', color: sportColor, fontWeight: 700, marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>🏆 Rank #{i+1}</div>
+                              <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'white', marginBottom: '3px', letterSpacing: '-0.02em' }}>{gb.player}</div>
+                              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '14px', fontWeight: 500 }}>{gb.team} vs {gb.opponent}</div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '10px 12px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                 <div>
+                                     <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase' }}>{gb.category}</span>
+                                     <div style={{ fontSize: '0.9rem', color: isOver ? '#4ade80' : '#ef4444', fontWeight: 800 }}>{gb.call} {gb.target}</div>
+                                 </div>
+                                 <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 900, color: '#22c55e', lineHeight: 1 }}>{gb.accuracy}%</div>
+                                    <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Hit Rate{gb.totalGames ? ` · ${gb.totalGames} plays` : ''}</div>
+                                 </div>
+                              </div>
+                           </div>
+                           );
+                        })}
+                     </div>
+                  </div>
+               )}
+
                {/* SEGMENTED TOGGLE (Overs / Unders) */}
          <div style={{ margin: '0 20px 20px', background: 'rgba(0,0,0,0.3)', borderRadius: '12px', display: 'flex', padding: '4px' }}>
             <button 

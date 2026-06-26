@@ -18,16 +18,19 @@ export const metadata = {
 
 import GlobalNav from "@/components/GlobalNav";
 import { ProProvider } from "@/context/ProContext";
+import { Providers } from "@/components/Providers";
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
       <body style={{ margin: 0, padding: 0, background: 'var(--bg-dark)' }}>
-        <ProProvider>
-          <GlobalNav>
-            {children}
-          </GlobalNav>
-        </ProProvider>
+        <Providers>
+          <ProProvider>
+            <GlobalNav>
+              {children}
+            </GlobalNav>
+          </ProProvider>
+        </Providers>
       </body>
     </html>
   );

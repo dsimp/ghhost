@@ -3,8 +3,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import FieldMap from '@/components/FieldMap';
 import TrendGraph from '@/components/TrendGraph';
-import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Search, Navigation } from 'lucide-react';
-import { usePro } from '@/context/ProContext';
+import StatLegend from '@/components/StatLegend';
+import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Search, Navigation, Lock, Ghost } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 
 export default function MLBHome() {
   const [players, setPlayers] = useState([]);
@@ -28,7 +29,8 @@ export default function MLBHome() {
   const [activePredictorTab, setActivePredictorTab] = useState('OVERS');
   
   const [targetStat, setTargetStat] = useState('TB'); 
-  const { isPro } = usePro();
+  const { data: session } = useSession();
+  const isPro = session?.user?.isPro;
   const [spatialResults, setSpatialResults] = useState({});
   const [riskResults, setRiskResults] = useState({});
 
@@ -39,6 +41,16 @@ export default function MLBHome() {
   const [selectedGameFilter, setSelectedGameFilter] = useState('');
   const [flippedFullCards, setFlippedFullCards] = useState({});
   const [playerLogsData, setPlayerLogsData] = useState({});
+  const [trendStatMap, setTrendStatMap] = useState({});
+
+  // Mapping from display stat abbreviation to gameLog key
+  const mlbStatKeyMap = {
+    H: 'H', TB: 'TB', R: 'R', RBI: 'RBI',
+    HR: 'HR', SB: 'SB', BB: 'BB',
+    K: 'K', ER: 'ER', HA: 'HA', IP: 'IP'
+  };
+  const hitterStatOptions = ['H', 'TB', 'R', 'RBI', 'HR', 'SB', 'BB'];
+  const pitcherStatOptions = ['K', 'ER', 'HA', 'BB', 'IP'];
 
   useEffect(() => {
     Promise.all([
@@ -367,6 +379,32 @@ export default function MLBHome() {
 
   const activeSearchList = mode === 'PREDICTOR' ? [] : players;
 
+  const geniusBoard = useMemo(() => {
+     if (!predictionsData?.players) return [];
+     const candidates = [];
+     predictionsData.players.forEach(p => {
+        p.evaluations.forEach(ev => {
+           if (ev.historicalAccuracy !== null && ev.historicalAccuracy !== undefined && ev.historicalAccuracy >= 0.65 && (ev.totalGames || 0) >= 5) {
+              candidates.push({
+                 player: p.player,
+                 team: p.team,
+                 opponent: p.opponentAbbr,
+                 category: ev.category,
+                 call: ev.call,
+                 accuracy: (ev.historicalAccuracy * 100).toFixed(0),
+                 totalGames: ev.totalGames || 0
+              });
+           }
+        });
+     });
+     // Sort by weighted score (accuracy × volume) descending
+     return candidates.sort((a, b) => {
+        const scoreA = (a.accuracy / 100) * Math.log2(a.totalGames + 1);
+        const scoreB = (b.accuracy / 100) * Math.log2(b.totalGames + 1);
+        return scoreB - scoreA;
+     }).slice(0, 5);
+  }, [predictionsData]);
+
   return (
     <main className="main-container">
       <header className="header">
@@ -393,7 +431,7 @@ export default function MLBHome() {
                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--panel-bg)', borderRadius: '12px', marginTop: '8px', zIndex: 50, maxHeight: '300px', overflowY: 'auto' }}>
                   {activeSearchList.filter(p => (p.fullName || p.name).toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10).map(item => (
                     <div key={item.id} onClick={() => handleSelect(item)} style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--panel-border)' }}>
-                      {item.fullName || item.name}
+                     {item.fullName || item.name} <span style={{color: 'var(--text-muted)'}}>({item.team}{item.position ? ` · ${item.position}` : ''})</span>
                     </div>
                   ))}
                </div>
@@ -574,14 +612,53 @@ export default function MLBHome() {
       {mode === 'PREDICTOR' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '20px', maxWidth: '1400px', margin: '0 auto', width: '100%' }}>
           {predictorLoading && (
-             <div className="loading" style={{marginTop: '50px'}}>
-                <Activity size={48} style={{display:'block', margin:'0 auto', marginBottom:'10px', color:'#3b82f6'}} className="spinner"/> 
-                Booting MLB Ghhost Brain...
-             </div>
+            <div style={{ marginTop: '50px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+                <Activity size={48} style={{ display: 'block', margin: '0 auto', marginBottom: '10px', color: '#3b82f6', animation: 'pulse 1.5s infinite' }} />
+                <div style={{ color: 'var(--text-muted)' }}>Booting MLB Ghhost Brain...</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 380px), 1fr))', gap: '20px' }}>
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <div key={i} className="glass-panel skeleton skeleton-card"></div>
+                ))}
+              </div>
+            </div>
           )}
           
           {!predictorLoading && predictionsData?.matchups && (
              <div style={{marginBottom: '40px', textAlign: 'center'}}>
+                {geniusBoard.length > 0 && (
+                   <div style={{ marginBottom: '30px', padding: '20px', background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.05))', borderRadius: '16px', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px' }}>
+                         <Lock size={24} color="#22c55e" />
+                         <h2 style={{ fontSize: '1.5rem', color: 'white', margin: 0 }}>Genius Accuracy Board</h2>
+                      </div>
+                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>
+                         Auto-correcting historical performance log. These are the top {geniusBoard.length} players the engine predicts with the highest historical accuracy.
+                      </p>
+                      <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px' }}>
+                         {geniusBoard.map((gb, i) => (
+                            <div key={i} style={{ minWidth: '220px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--panel-border)', textAlign: 'left' }}>
+                               <div style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 700, marginBottom: '4px' }}>Rank #{i+1}</div>
+                               <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'white', marginBottom: '4px' }}>{gb.player}</div>
+                               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>{gb.team} vs {gb.opponent}</div>
+                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <div>
+                                     <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{gb.category}</span>
+                                     <div style={{ fontSize: '0.7rem', color: gb.call.includes('OVER') ? '#4ade80' : '#ef4444', fontWeight: 800 }}>{gb.call}</div>
+                                  </div>
+                                  <div style={{ textAlign: 'right' }}>
+                                     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#22c55e' }}>{gb.accuracy}%</div>
+                                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Hit Rate</div>
+                                  </div>
+                               </div>
+                            </div>
+                         ))}
+                      </div>
+                   </div>
+                )}
+             
+                <StatLegend sport="MLB" />
                 <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>
                 <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px', flexWrap: 'wrap'}}>
                   {predictionsData.matchups.map((m, i) => {
@@ -666,7 +743,7 @@ export default function MLBHome() {
                                       const alerts = [];
                                       if (evalData.spatialDesc) alerts.push({ text: evalData.spatialDesc, color: '#fbbf24', bg: 'rgba(245, 158, 11, 0.1)', border: 'rgba(245, 158, 11, 0.3)', icon: '🎯' });
                                       if (evalData.streakDesc) alerts.push({ text: evalData.streakDesc, color: evalData.call.includes('OVER') ? '#4ade80' : '#f87171', bg: evalData.call.includes('OVER') ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', border: evalData.call.includes('OVER') ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)', icon: '⚡' });
-                                      if (evalData.memoryDesc) alerts.push({ text: evalData.memoryDesc.replace('👻', '').trim(), color: '#f472b6', bg: 'rgba(236, 72, 153, 0.1)', border: 'rgba(236, 72, 153, 0.3)', icon: '👻' });
+                                      if (evalData.memoryDesc) alerts.push({ text: evalData.memoryDesc.replace(/[👻]/g, '').trim(), color: '#f472b6', bg: 'rgba(236, 72, 153, 0.1)', border: 'rgba(236, 72, 153, 0.3)', icon: <Ghost size={16} /> });
                                       
                                       return alerts.map((al, aIdx) => (
                                          <div key={`${eIdx}-${aIdx}`} style={{ 
@@ -695,6 +772,31 @@ export default function MLBHome() {
                                    <h3 style={{fontSize: '1.1rem'}}>{pred.player} Last 10</h3>
                                    <button onClick={() => handleFullCardFlip(pred.playerId)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem'}}>✕</button>
                                 </div>
+                                {/* Stat Filter Dropdown */}
+                                {trendData?.logs && (
+                                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>Stat:</span>
+                                      <select
+                                         className="dropdown-glass"
+                                         value={trendStatMap[pred.playerId] || (pred.isPitcher ? 'K' : 'TB')}
+                                         onChange={(e) => setTrendStatMap(prev => ({ ...prev, [pred.playerId]: e.target.value }))}
+                                         style={{
+                                            background: 'rgba(255,255,255,0.06)',
+                                            color: 'white',
+                                            border: '1px solid var(--panel-border)',
+                                            borderRadius: '8px',
+                                            padding: '5px 10px',
+                                            fontSize: '0.8rem',
+                                            cursor: 'pointer',
+                                            outline: 'none'
+                                         }}
+                                      >
+                                         {(pred.isPitcher ? pitcherStatOptions : hitterStatOptions).map(s => (
+                                            <option key={s} value={s} style={{ background: '#1a1a2e', color: 'white' }}>{s}</option>
+                                         ))}
+                                      </select>
+                                   </div>
+                                )}
                                 <div style={{ flex: 1, position: 'relative' }}>
                                    {trendData?.loading ? (
                                       <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)' }}>Extracting Game Logs...</div>
@@ -703,7 +805,7 @@ export default function MLBHome() {
                                    ) : trendData?.logs ? (
                                       <TrendGraph 
                                          logs={trendData.logs.slice(0, 10)} 
-                                         statKey={pred.isPitcher ? (pred.evaluations[0]?.category === 'K' ? 'strikeOuts' : 'earnedRuns') : 'TB'} 
+                                         statKey={mlbStatKeyMap[trendStatMap[pred.playerId] || (pred.isPitcher ? 'K' : 'TB')]} 
                                       />
                                    ) : null}
                                 </div>
@@ -738,19 +840,37 @@ export default function MLBHome() {
                          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem', lineHeight: '1.4' }}>
                             Ghhost Pro members get access to unlimited daily MLB predictions, Interactive Trend Graphs, and the AI Autopsy Memory Engine.
                          </p>
-                         <button style={{
-                            marginTop: '10px',
-                            background: 'linear-gradient(135deg, #f472b6, #c026d3)',
-                            color: 'white',
-                            border: 'none',
-                            padding: '12px 30px',
-                            borderRadius: '30px',
-                            fontWeight: 'bold',
-                            cursor: 'pointer',
-                            boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
-                         }}>
-                            Upgrade to Pro
-                         </button>
+                         {session ? (
+                           <form action="/api/stripe/checkout" method="POST">
+                             <button type="submit" style={{
+                                marginTop: '10px',
+                                background: 'linear-gradient(135deg, #f472b6, #c026d3)',
+                                color: 'white',
+                                border: 'none',
+                                padding: '12px 30px',
+                                borderRadius: '30px',
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                boxShadow: '0 4px 15px rgba(236, 72, 153, 0.4)'
+                             }}>
+                                Subscribe to Ghhost Pro - $19.99/mo
+                             </button>
+                           </form>
+                         ) : (
+                           <a href="/login" style={{
+                              marginTop: '10px',
+                              background: 'white',
+                              color: 'black',
+                              textDecoration: 'none',
+                              padding: '12px 30px',
+                              borderRadius: '30px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              boxShadow: '0 4px 15px rgba(255, 255, 255, 0.2)'
+                           }}>
+                              Sign In to Subscribe
+                           </a>
+                         )}
                       </div>
                    </div>
                 )}

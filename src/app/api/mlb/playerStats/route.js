@@ -39,7 +39,9 @@ export async function GET(request) {
             // We use generic names that the RiskEngine can process or map
             H: s.stat.hits !== undefined ? s.stat.hits : 0,
             HR: s.stat.homeRuns !== undefined ? s.stat.homeRuns : 0,
+            R: s.stat.runs !== undefined ? s.stat.runs : 0,
             RBI: s.stat.rbi !== undefined ? s.stat.rbi : 0,
+            HA: s.stat.hits !== undefined ? s.stat.hits : 0,
             K: s.stat.strikeOuts !== undefined ? s.stat.strikeOuts : 0,
             BB: s.stat.baseOnBalls !== undefined ? s.stat.baseOnBalls : 0,
             SB: s.stat.stolenBases !== undefined ? s.stat.stolenBases : 0,

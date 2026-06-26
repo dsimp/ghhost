@@ -15,7 +15,7 @@ export async function GET(request) {
     const data = await fetchMLB(`people/${playerId}/stats`, {
       stats: 'sprayChart',
       group: group,
-      season: 2024
+      season: 2026
     });
 
     if (!data || !data.stats || data.stats.length === 0) {

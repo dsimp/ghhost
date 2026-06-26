@@ -9,8 +9,7 @@ export async function fetchMLB(endpoint, params = {}) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'application/json',
       },
-      // Next.js caching: revalidate every hour or keep it fresh
-      next: { revalidate: 3600 }
+      cache: 'no-store'
     });
     
     if (!res.ok) {

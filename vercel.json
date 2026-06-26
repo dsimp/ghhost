@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/prewarm",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/memory/grade",
+      "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/memory/optimize",
+      "schedule": "30 10 * * *"
+    }
+  ]
+}
