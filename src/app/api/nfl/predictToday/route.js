@@ -113,9 +113,7 @@ function calcNFLWeatherModifier(weather, statCat) {
 }
 
 export async function GET(request) {
-  const dateObj = new Date();
-  const year = dateObj.getFullYear();
-  const gameDate = dateObj.toISOString().split('T')[0];
+  const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
   try {
      const cached = await prisma.dailyCache.findUnique({
@@ -131,6 +129,8 @@ export async function GET(request) {
 
   try {
     // 1. Fetch today's scoreboard
+    const dateObj = new Date();
+    const year = dateObj.getFullYear();
     const scoreboardData = await fetchNFL(`scoreboard?dates=${year}`);
     const events = scoreboardData?.events || [];
     
@@ -372,7 +372,8 @@ export async function GET(request) {
       return bStrong - aStrong;
     });
 
-    logPredictionsToVault('NFL', playerPredictions).catch(console.error);
+    // Log predictions to the Memory Vault asynchronously, enforcing the correct gameDate
+    logPredictionsToVault('NFL', playerPredictions, gameDate).catch(console.error);
 
     const payload = { matchups: todayMatchups, players: playerPredictions };
 

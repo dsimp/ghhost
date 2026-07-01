@@ -71,7 +71,8 @@ export async function GET(request) {
           total: h.total, hits: h.hits, misses: h.misses, contextWarnings: h.contextWarnings || [],
           homeHits: h.homeHits || 0, homeMisses: h.homeMisses || 0,
           awayHits: h.awayHits || 0, awayMisses: h.awayMisses || 0,
-          opponentSplits: h.opponentSplits || {}
+          opponentSplits: h.opponentSplits || {},
+          pitcherHandednessSplits: h.pitcherHandednessSplits || {}
        };
     }
 
@@ -84,7 +85,7 @@ export async function GET(request) {
        if (!vault.playerHistory[playerId][evaluation.category]) {
           vault.playerHistory[playerId][evaluation.category] = { 
              total: 0, hits: 0, misses: 0, contextWarnings: [],
-             homeHits: 0, homeMisses: 0, awayHits: 0, awayMisses: 0, opponentSplits: {}
+             homeHits: 0, homeMisses: 0, awayHits: 0, awayMisses: 0, opponentSplits: {}, pitcherHandednessSplits: {}
           };
        }
        const historyRef = vault.playerHistory[playerId][evaluation.category];
@@ -92,15 +93,25 @@ export async function GET(request) {
        
        const opp = evaluation.opponentAbbr || "UNK";
        if (!historyRef.opponentSplits[opp]) historyRef.opponentSplits[opp] = { hits: 0, misses: 0 };
+       
+       let handRef = null;
+       if (evaluation.pitcherHandedness) {
+           if (!historyRef.pitcherHandednessSplits[evaluation.pitcherHandedness]) {
+               historyRef.pitcherHandednessSplits[evaluation.pitcherHandedness] = { hits: 0, misses: 0 };
+           }
+           handRef = historyRef.pitcherHandednessSplits[evaluation.pitcherHandedness];
+       }
 
        if (isHit) {
           historyRef.hits++;
           if (evaluation.isHome) historyRef.homeHits++; else historyRef.awayHits++;
           historyRef.opponentSplits[opp].hits++;
+          if (handRef) handRef.hits++;
        } else {
           historyRef.misses++;
           if (evaluation.isHome) historyRef.homeMisses++; else historyRef.awayMisses++;
           historyRef.opponentSplits[opp].misses++;
+          if (handRef) handRef.misses++;
           if (evaluation.contextNote && !evaluation.contextNote.includes("Pure Miss")) {
              historyRef.contextWarnings.push(evaluation.contextNote);
           }
@@ -292,11 +303,11 @@ export async function GET(request) {
              where: { playerId_category: { playerId, category } },
              create: { 
                 playerId, category, total: stats.total, hits: stats.hits, misses: stats.misses, hitRate, contextWarnings: stats.contextWarnings,
-                homeHits: stats.homeHits, homeMisses: stats.homeMisses, awayHits: stats.awayHits, awayMisses: stats.awayMisses, opponentSplits: stats.opponentSplits
+                homeHits: stats.homeHits, homeMisses: stats.homeMisses, awayHits: stats.awayHits, awayMisses: stats.awayMisses, opponentSplits: stats.opponentSplits, pitcherHandednessSplits: stats.pitcherHandednessSplits
              },
              update: { 
                 total: stats.total, hits: stats.hits, misses: stats.misses, hitRate, contextWarnings: stats.contextWarnings,
-                homeHits: stats.homeHits, homeMisses: stats.homeMisses, awayHits: stats.awayHits, awayMisses: stats.awayMisses, opponentSplits: stats.opponentSplits
+                homeHits: stats.homeHits, homeMisses: stats.homeMisses, awayHits: stats.awayHits, awayMisses: stats.awayMisses, opponentSplits: stats.opponentSplits, pitcherHandednessSplits: stats.pitcherHandednessSplits
              }
           });
        }
@@ -321,7 +332,7 @@ export async function GET(request) {
 async function gradeBasketball(playerPredictions, dateKey, leagueId, season, updateHistory) {
   let gradedCount = 0;
   let dnpCount = 0;
-  const isPlayoffs = dateKey >= '2026-04-15';
+  const isPlayoffs = leagueId === '10' ? dateKey >= '2026-09-20' : dateKey >= '2026-04-15';
 
   for (const playerPrediction of playerPredictions) {
     const ungraded = playerPrediction.evaluations;

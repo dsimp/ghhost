@@ -120,11 +120,7 @@ const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export async function GET(request) {
-  const dateObj = new Date();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  const year = dateObj.getFullYear();
-  const gameDate = `${year}-${month}-${day}`; 
+  const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
   try {
      const cached = await prisma.dailyCache.findUnique({
@@ -551,6 +547,22 @@ export async function GET(request) {
                       if (awayRate <= 0.3) { confidenceScore -= Math.round(20 * sampleWeight); historyStr += ` 👻 Auto-Corrected: Low Road accuracy.`; }
                       else if (awayRate >= 0.8) { confidenceScore += Math.round(10 * sampleWeight); }
                   }
+
+                  const handSplits = pHistory.pitcherHandednessSplits?.[oppPitcher.hand];
+                  if (handSplits && (handSplits.hits + handSplits.misses >= 3)) {
+                      const handHitRate = handSplits.hits / (handSplits.hits + handSplits.misses);
+                      if (handHitRate <= 0.3) {
+                          confidenceScore -= Math.round(20 * sampleWeight); 
+                          historyStr += ` 👻 Auto-Corrected: Poor historical accuracy vs ${oppPitcher.hand}HP.`;
+                          if (call.includes('OVER') && handHitRate <= 0.2) {
+                              call = 'UNDER';
+                              color = '#ef4444';
+                          }
+                      } else if (handHitRate >= 0.75) {
+                          confidenceScore += Math.round(15 * sampleWeight);
+                          historyStr += ` 🎯 Genius Lock: High accuracy predicting vs ${oppPitcher.hand}HP.`;
+                      }
+                  }
               }
 
               const callDirection = call.includes('OVER') ? 'OVER' : 'UNDER';
@@ -570,13 +582,13 @@ export async function GET(request) {
                     spatialDesc: spatialText,
                     memoryDesc: memoryText,
                     historicalAccuracy: numAccuracy,
-                    totalGames: pHistory ? pHistory.total : 0
+                    totalGames: pHistory ? pHistory.total : 0,
+                    pitcherHand: oppPitcher.hand
                  });
               }
            });
 
-          if (statEvaluations.length > 0) {
-             playerPredictions.push({
+           playerPredictions.push({
                 player: hitter.fullName,
                 playerId: hitter.id,
                 position: hitter.primaryPosition?.abbreviation || hitter.primaryPosition?.name || 'OF',
@@ -586,7 +598,6 @@ export async function GET(request) {
                 isHome: isHomePlayer,
                 evaluations: statEvaluations
              });
-          }
        });
     }
 
@@ -752,8 +763,7 @@ export async function GET(request) {
                 }
             });
            
-           if (statEvaluations.length > 0) {
-              playerPredictions.push({
+           playerPredictions.push({
                  player: pitcher.fullName,
                  playerId: pitcher.id,
                  position: pitcher.primaryPosition?.abbreviation || pitcher.primaryPosition?.name || 'SP',
@@ -764,18 +774,17 @@ export async function GET(request) {
                  isPitcher: true, // Tag as pitcher
                  evaluations: statEvaluations
               });
-           }
         });
      }
 
     playerPredictions.sort((a, b) => {
-       const aMaxConf = Math.max(...a.evaluations.map(e => e.confidence));
-       const bMaxConf = Math.max(...b.evaluations.map(e => e.confidence));
+       const aMaxConf = a.evaluations.length > 0 ? Math.max(...a.evaluations.map(e => e.confidence)) : 0;
+       const bMaxConf = b.evaluations.length > 0 ? Math.max(...b.evaluations.map(e => e.confidence)) : 0;
        return bMaxConf - aMaxConf;
     });
 
-    // Log predictions to the Memory Vault asynchronously
-    logPredictionsToVault('MLB', playerPredictions).catch(console.error);
+    // Log predictions to the Memory Vault asynchronously, enforcing the correct gameDate
+    logPredictionsToVault('MLB', playerPredictions, gameDate).catch(console.error);
 
     const payload = {
        matchups: todayMatchups,

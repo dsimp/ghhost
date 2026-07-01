@@ -79,6 +79,7 @@ model PredictionLog {
   actualResult   Float?
   contextNote    String?
   optimized      Boolean  @default(false) // Phase 3: Has this been processed by the feedback loop?
+  pitcherHandedness String? // "L" or "R" (MLB specific)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -101,6 +102,7 @@ model PlayerHistory {
   awayHits       Int      @default(0)
   awayMisses     Int      @default(0)
   opponentSplits Json?
+  pitcherHandednessSplits Json? // e.g. {"L": {hits: 5, misses: 2}, "R": {hits: 15, misses: 8}}
 
   contextWarnings Json?   // Storing an array of strings e.g., ["Blowout", "Subbed early"]
   createdAt      DateTime @default(now())

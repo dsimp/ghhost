@@ -372,7 +372,7 @@ export default function WNBADashboard() {
      const candidates = [];
      predictionsData.players.forEach(p => {
         p.evaluations.forEach(ev => {
-           if (ev.historicalAccuracy !== null && ev.historicalAccuracy !== undefined && ev.historicalAccuracy >= 0.65 && (ev.totalGames || 0) >= 5) {
+           if (ev.historicalAccuracy !== null && ev.historicalAccuracy !== undefined && ev.historicalAccuracy >= 0.55 && (ev.totalGames || 0) >= 3) {
               candidates.push({
                  player: p.player,
                  team: p.team,

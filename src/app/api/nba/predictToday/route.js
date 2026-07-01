@@ -74,11 +74,7 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const season = searchParams.get('season') || '2025-26';
   
-  const dateObj = new Date();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
-  const year = dateObj.getFullYear();
-  const gameDate = `${year}-${month}-${day}`; 
+  const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
   try {
      const cached = await prisma.dailyCache.findUnique({
@@ -97,12 +93,13 @@ export async function GET(request) {
 
   try {
     // Batch 1 — Phase 2: Added Advanced stats (USG%, TS%, PIE) and Team General stats (PACE)
-    const [scoreboardData, teamDefenseData, playerStatsData, playerAdvancedData, teamGeneralData] = await Promise.all([
+    const [scoreboardData, teamDefenseData, playerStatsData, playerAdvancedData, teamGeneralData, playerIndexData] = await Promise.all([
       fetchNBA('scoreboardv3', { GameDate: gameDate, LeagueID: '00' }).catch(() => null),
       fetchNBA('leaguedashteamstats', { MeasureType: 'Opponent', PerMode: 'PerGame', Season: season, SeasonType: 'Regular Season', LeagueID: '00', LastNGames: '0', Month: '0', OpponentTeamID: '0', PORound: '0', PaceAdjust: 'N', Period: '0', PlusMinus: 'N', Rank: 'N' }).catch(() => null),
       fetchNBA('leaguedashplayerstats', { MeasureType: 'Base', PerMode: 'PerGame', Season: season, SeasonType: 'Regular Season', LeagueID: '00', LastNGames: '0', Month: '0', OpponentTeamID: '0', PORound: '0', PaceAdjust: 'N', Period: '0', PlusMinus: 'N', Rank: 'N' }).catch(() => null),
       fetchNBA('leaguedashplayerstats', { MeasureType: 'Advanced', PerMode: 'PerGame', Season: season, SeasonType: 'Regular Season', LeagueID: '00', LastNGames: '0', Month: '0', OpponentTeamID: '0', PORound: '0', PaceAdjust: 'N', Period: '0', PlusMinus: 'N', Rank: 'N' }).catch(() => null),
-      fetchNBA('leaguedashteamstats', { MeasureType: 'Base', PerMode: 'PerGame', Season: season, SeasonType: 'Regular Season', LeagueID: '00', LastNGames: '0', Month: '0', OpponentTeamID: '0', PORound: '0', PaceAdjust: 'N', Period: '0', PlusMinus: 'N', Rank: 'N' }).catch(() => null)
+      fetchNBA('leaguedashteamstats', { MeasureType: 'Base', PerMode: 'PerGame', Season: season, SeasonType: 'Regular Season', LeagueID: '00', LastNGames: '0', Month: '0', OpponentTeamID: '0', PORound: '0', PaceAdjust: 'N', Period: '0', PlusMinus: 'N', Rank: 'N' }).catch(() => null),
+      fetchNBA('playerindex', { LeagueID: '00', Season: season }).catch(() => null)
     ]);
     
     // Graceful Failure if NBA API blocked us
@@ -142,6 +139,14 @@ export async function GET(request) {
     const todayMatchups = [];
     const playingTeamIds = new Set();
     const teamIdToOppositeName = {}; 
+
+    const positionMap = {};
+    if (playerIndexData && playerIndexData.resultSets && playerIndexData.resultSets[0].rowSet) {
+       const piHeaders = playerIndexData.resultSets[0].headers;
+       playerIndexData.resultSets[0].rowSet.forEach(row => {
+          positionMap[String(row[piHeaders.indexOf('PERSON_ID')])] = row[piHeaders.indexOf('POSITION')];
+       });
+    }
 
     const defHeaders = teamDefenseData.resultSets[0].headers;
     const defRows = teamDefenseData.resultSets[0].rowSet;
@@ -356,7 +361,7 @@ export async function GET(request) {
 
     const pRows = pRowsRaw.filter(r => 
        playingTeamIds.has(String(r[pHeaders.indexOf('TEAM_ID')])) && 
-       r[pHeaders.indexOf('MIN')] > 22 &&
+       r[pHeaders.indexOf('MIN')] > 0 &&
        (recentPlayerIds.size === 0 || recentPlayerIds.has(String(r[pHeaders.indexOf('PLAYER_ID')])))
     );
 
@@ -729,7 +734,7 @@ export async function GET(request) {
        playerPredictions.push({
           player: playerName,
           playerId: playerId,
-          position: pHeaders.includes('POSITION') ? player[pHeaders.indexOf('POSITION')] : 'STARTER',
+          position: positionMap[playerId] || 'STARTER',
           team: teamAbbr,
           opponent: oppName,
           opponentAbbr: opponentAbbr,
@@ -745,7 +750,8 @@ export async function GET(request) {
        return bStrong - aStrong;
     });
 
-    logPredictionsToVault('NBA', playerPredictions).catch(console.error);
+    // Log predictions to the Memory Vault asynchronously, enforcing the correct gameDate
+    logPredictionsToVault('NBA', playerPredictions, gameDate).catch(console.error);
 
     const payload = {
        matchups: todayMatchups,

@@ -39,7 +39,8 @@ export async function logPredictionsToVault(sport, players) {
            graded: false,
            hit: null,
            actualResult: null,
-           contextNote: null
+           contextNote: null,
+           pitcherHandedness: e.pitcherHand || null
          });
       });
     });
@@ -96,7 +97,8 @@ export async function getFullPlayerHistory() {
         homeMisses: h.homeMisses || 0,
         awayHits: h.awayHits || 0,
         awayMisses: h.awayMisses || 0,
-        opponentSplits: h.opponentSplits || {}
+        opponentSplits: h.opponentSplits || {},
+        pitcherHandednessSplits: h.pitcherHandednessSplits || {}
       };
     });
     return map;
