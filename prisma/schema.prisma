@@ -91,10 +91,24 @@ model PlayerHistory {
   id             String   @id @default(cuid())
   playerId       String
   category       String
+  
+  // Aggregate Metrics (Kept for broad checks)
   total          Int      @default(0)
   hits           Int      @default(0)
   misses         Int      @default(0)
   hitRate        Float    @default(0)
+
+  // Over-Specific Metrics
+  overTotal      Int      @default(0)
+  overHits       Int      @default(0)
+  overMisses     Int      @default(0)
+  overHitRate    Float    @default(0)
+
+  // Under-Specific Metrics
+  underTotal     Int      @default(0)
+  underHits      Int      @default(0)
+  underMisses    Int      @default(0)
+  underHitRate   Float    @default(0)
 
   // Contextual Data
   homeHits       Int      @default(0)

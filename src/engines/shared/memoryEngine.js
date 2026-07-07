@@ -89,10 +89,15 @@ export function analyzeMemory(
   let confidenceAdj = 0;
   let historyStr    = '';
   let numAccuracy   = null;
-  const totalGames  = pHistory?.total || 0;
+  
+  // Determine direction to pull specific stats
+  const isOver = call.includes('OVER');
+
+  const totalGames  = pHistory ? (isOver ? pHistory.overTotal : pHistory.underTotal) : 0;
+  const hits        = pHistory ? (isOver ? pHistory.overHits : pHistory.underHits) : 0;
 
   if (pHistory && totalGames > 0) {
-    const hitRate = pHistory.hits / totalGames;
+    const hitRate = hits / totalGames;
     numAccuracy   = hitRate;
 
     /* ─── Sample-size weighted confidence ramp ────────────────── */
@@ -104,10 +109,10 @@ export function analyzeMemory(
     /* ─── Overall accuracy correction ─────────────────────────── */
     if (totalGames >= MIN_GAMES_FOR_CORRECTION && hitRate < STRUGGLE_RATE) {
       confidenceAdj += Math.round(STRUGGLE_PENALTY * sampleWeight);
-      historyStr = ` Proceed with caution. Historical struggle (${(hitRate * 100).toFixed(0)}% accuracy).`;
+      historyStr = ` Proceed with caution. Historical struggle (${(hitRate * 100).toFixed(0)}% accuracy on ${isOver ? 'OVERs' : 'UNDERs'}).`;
     } else if (totalGames >= MIN_GAMES_FOR_CORRECTION && hitRate > LOCK_RATE) {
       confidenceAdj += Math.round(LOCK_BONUS * sampleWeight);
-      historyStr = ` Historical lock (${(hitRate * 100).toFixed(0)}% accuracy).`;
+      historyStr = ` Historical lock (${(hitRate * 100).toFixed(0)}% accuracy on ${isOver ? 'OVERs' : 'UNDERs'}).`;
     }
 
     /* ─── Opponent-specific correction (can flip the call) ────── */

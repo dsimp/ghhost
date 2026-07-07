@@ -92,6 +92,18 @@ export async function getFullPlayerHistory() {
         hits: h.hits,
         misses: h.misses,
         hitRate: h.hitRate,
+        
+        // Over/Under Splitting metrics
+        overTotal: h.overTotal || 0,
+        overHits: h.overHits || 0,
+        overMisses: h.overMisses || 0,
+        overHitRate: h.overHitRate || 0,
+        
+        underTotal: h.underTotal || 0,
+        underHits: h.underHits || 0,
+        underMisses: h.underMisses || 0,
+        underHitRate: h.underHitRate || 0,
+
         contextWarnings: h.contextWarnings || [],
         homeHits: h.homeHits || 0,
         homeMisses: h.homeMisses || 0,

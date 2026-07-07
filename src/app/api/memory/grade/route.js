@@ -102,16 +102,30 @@ export async function GET(request) {
            handRef = historyRef.pitcherHandednessSplits[evaluation.pitcherHandedness];
        }
 
+       const isOver = evaluation.call === 'OVER';
+       if (isOver) {
+          historyRef.overTotal = (historyRef.overTotal || 0) + 1;
+       } else {
+          historyRef.underTotal = (historyRef.underTotal || 0) + 1;
+       }
+
        if (isHit) {
           historyRef.hits++;
           if (evaluation.isHome) historyRef.homeHits++; else historyRef.awayHits++;
           historyRef.opponentSplits[opp].hits++;
           if (handRef) handRef.hits++;
+          
+          if (isOver) historyRef.overHits = (historyRef.overHits || 0) + 1;
+          else historyRef.underHits = (historyRef.underHits || 0) + 1;
        } else {
           historyRef.misses++;
           if (evaluation.isHome) historyRef.homeMisses++; else historyRef.awayMisses++;
           historyRef.opponentSplits[opp].misses++;
           if (handRef) handRef.misses++;
+          
+          if (isOver) historyRef.overMisses = (historyRef.overMisses || 0) + 1;
+          else historyRef.underMisses = (historyRef.underMisses || 0) + 1;
+
           if (evaluation.contextNote && !evaluation.contextNote.includes("Pure Miss")) {
              historyRef.contextWarnings.push(evaluation.contextNote);
           }
@@ -299,14 +313,21 @@ export async function GET(request) {
     for (const [playerId, categories] of Object.entries(vault.playerHistory)) {
        for (const [category, stats] of Object.entries(categories)) {
           const hitRate = stats.total > 0 ? (stats.hits / stats.total) : 0;
+          const overHitRate = stats.overTotal > 0 ? (stats.overHits / stats.overTotal) : 0;
+          const underHitRate = stats.underTotal > 0 ? (stats.underHits / stats.underTotal) : 0;
+
           await prisma.playerHistory.upsert({
              where: { playerId_category: { playerId, category } },
              create: { 
                 playerId, category, total: stats.total, hits: stats.hits, misses: stats.misses, hitRate, contextWarnings: stats.contextWarnings,
+                overTotal: stats.overTotal || 0, overHits: stats.overHits || 0, overMisses: stats.overMisses || 0, overHitRate,
+                underTotal: stats.underTotal || 0, underHits: stats.underHits || 0, underMisses: stats.underMisses || 0, underHitRate,
                 homeHits: stats.homeHits, homeMisses: stats.homeMisses, awayHits: stats.awayHits, awayMisses: stats.awayMisses, opponentSplits: stats.opponentSplits, pitcherHandednessSplits: stats.pitcherHandednessSplits
              },
              update: { 
                 total: stats.total, hits: stats.hits, misses: stats.misses, hitRate, contextWarnings: stats.contextWarnings,
+                overTotal: stats.overTotal || 0, overHits: stats.overHits || 0, overMisses: stats.overMisses || 0, overHitRate,
+                underTotal: stats.underTotal || 0, underHits: stats.underHits || 0, underMisses: stats.underMisses || 0, underHitRate,
                 homeHits: stats.homeHits, homeMisses: stats.homeMisses, awayHits: stats.awayHits, awayMisses: stats.awayMisses, opponentSplits: stats.opponentSplits, pitcherHandednessSplits: stats.pitcherHandednessSplits
              }
           });
