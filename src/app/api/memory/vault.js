@@ -127,3 +127,29 @@ export async function getLearnedAdjustments(sport) {
     return {};
   }
 }
+
+/**
+ * Phase 8: Fetches all Scouting Notes from the Data Lake for a sport.
+ * @param {string} sport 'NBA', 'WNBA', or 'MLB'
+ * @returns {Object} Map of playerId -> category -> contextHash -> { note, adjustment, confidence }
+ */
+export async function getScoutingNotes(sport) {
+  try {
+    const notes = await prisma.scoutingNote.findMany({
+      where: { sport }
+    });
+    const map = {};
+    notes.forEach(n => {
+      if (!map[n.playerId]) map[n.playerId] = {};
+      if (!map[n.playerId][n.category]) map[n.playerId][n.category] = {};
+      map[n.playerId][n.category][n.contextHash] = {
+        note: n.note,
+        adjustment: n.adjustment,
+        confidence: n.confidence
+      };
+    });
+    return map;
+  } catch (e) {
+    return {};
+  }
+}

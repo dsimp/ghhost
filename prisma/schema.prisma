@@ -134,3 +134,19 @@ model LearnedAdjustment {
 
   @@unique([sport, bucket])
 }
+
+// Phase 8: Dynamic Scouting Notebook (Data Lake)
+model ScoutingNote {
+  id          String   @id @default(cuid())
+  sport       String
+  playerId    String
+  playerName  String
+  category    String   // e.g. PTS, REB, TB
+  contextHash String   // A unique hash of the scenario (e.g., "0_DAYS_REST_AWAY", "OPP_BOS")
+  note        String   // The human-readable note: "Struggles to clear PTS OVERs on back-to-backs on the road."
+  adjustment  Float    // The mathematical modifier to apply (-2.0, +1.5)
+  confidence  Int      @default(0) // Confidence of the note (0-100) based on sample size
+  createdAt   DateTime @default(now())
+
+  @@unique([playerId, contextHash, category])
+}
