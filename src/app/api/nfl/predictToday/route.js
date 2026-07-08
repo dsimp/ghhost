@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
 import { fetchNFL } from '../fetchNFL';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { PrismaClient } from '@prisma/client';
@@ -113,6 +114,7 @@ function calcNFLWeatherModifier(weather, statCat) {
 }
 
 export async function GET(request) {
+  const liveOdds = await fetchAvailableProps('NFL');
   const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
   try {
@@ -250,6 +252,7 @@ export async function GET(request) {
         const statEvaluations = [];
         
         player.stats.forEach(({ category, displayCat, avg, targetLine }) => {
+          if (!isLineLive(liveOdds, player.name, displayCat)) { return; }
           let call = avg > targetLine ? 'OVER' : 'UNDER';
           let color = call === 'OVER' ? '#4ade80' : '#ef4444';
           let confidenceScore = 50;

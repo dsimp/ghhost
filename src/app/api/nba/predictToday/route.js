@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { fetchNBA } from '../fetchNBA';
 import { PrismaClient } from '@prisma/client';
@@ -28,6 +29,8 @@ function rankTeams(teamsData, statIndex, descending = false) {
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const season = searchParams.get('season') || '2025-26';
+
+  const liveOdds = await fetchAvailableProps('NBA');
   const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
   try {
@@ -327,6 +330,10 @@ export async function GET(request) {
        const statEvaluations = [];
 
        ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'TOV', 'PRA'].forEach(statCat => {
+        if (!isLineLive(liveOdds, playerName, statCat)) {
+          return;
+        }
+
         const avg = stats[statCat];
 
         // ─── STATION 3: MATCHUP ENGINE ─────────────────────────

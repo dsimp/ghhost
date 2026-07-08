@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchAvailableProps, isLineLive } from '../../../../engines/shared/oddsFetcher';
 import { fetchMLB } from '../fetchMLB';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { PrismaClient } from '@prisma/client';
@@ -120,6 +121,7 @@ const prisma = globalForPrisma.prisma || new PrismaClient();
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 export async function GET(request) {
+  const liveOdds = await fetchAvailableProps('MLB');
   const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
   try {
@@ -281,6 +283,7 @@ export async function GET(request) {
           const oppPitcher = pitcherProfiles[oppPitcherId];
           const oppName = teamIdToOppositeName[teamId];
           const isHomePlayer = todayMatchups.some(m => m.home === teamIdToName[teamId]);
+          const playerName = hitter.fullName;
 
           // Extract Splits
           let vsLHP = null;
@@ -329,6 +332,7 @@ export async function GET(request) {
             ['hits', 'totalBases', 'runs', 'rbi', 'homeRuns', 'stolenBases', 'baseOnBalls'].forEach(statCat => {
                const displayCatMap = { hits: 'H', totalBases: 'TB', runs: 'R', rbi: 'RBI', homeRuns: 'HR', stolenBases: 'SB', baseOnBalls: 'BB' };
                const displayCat = displayCatMap[statCat];
+               if (!isLineLive(liveOdds, playerName, displayCat)) { return; }
                const statMapping = statCat; // gameLog key matches statCat for hitters
                const splitAvg = parseFloat(relevantSplit[statCat] / relevantSplit.atBats) || 0; // Per AB approximation
                const seasonTotal = parseInt(relevantSplit[statCat]);
@@ -609,6 +613,7 @@ export async function GET(request) {
            
            const oppName = teamIdToOppositeName[teamId];
            const isHomePlayer = todayMatchups.some(m => m.home === teamIdToName[teamId]);
+           const playerName = pitcher.fullName;
            
            const pProfile = pitcherProfiles[pitcher.id];
            if (!pProfile || !pProfile.gameLogs || pProfile.gameLogs.length === 0) return;
@@ -620,6 +625,7 @@ export async function GET(request) {
            ['strikeOuts', 'earnedRuns', 'hitsAllowed', 'baseOnBalls', 'inningsPitched'].forEach(statCat => {
                 const displayCatMap = { strikeOuts: 'K', earnedRuns: 'ER', hitsAllowed: 'HA', baseOnBalls: 'BB', inningsPitched: 'IP' };
                 const displayCat = displayCatMap[statCat];
+                if (!isLineLive(liveOdds, playerName, displayCat)) { return; }
                 const targetLineMap = { strikeOuts: 5.5, earnedRuns: 2.5, hitsAllowed: 5.5, baseOnBalls: 2.5, inningsPitched: 5.0 };
                 const targetLine = targetLineMap[statCat];
                 // For hitsAllowed, the gameLog stat key is 'hits' (in the pitching stat group)

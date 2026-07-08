@@ -5,7 +5,7 @@ import CourtMap from '@/components/CourtMap';
 import TrendGraph from '@/components/TrendGraph';
 import StatLegend from '@/components/StatLegend';
 import { useSession } from 'next-auth/react';
-import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Lock, Ghost } from 'lucide-react';
+import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Lock, Ghost, TrendingUp, TrendingDown } from 'lucide-react';
 
 export default function WNBADashboard() {
   const { data: session } = useSession();
@@ -367,29 +367,45 @@ export default function WNBADashboard() {
 
   const activeSearchList = mode === 'PLAYER' ? players : teams;
 
-  const geniusBoard = useMemo(() => {
-     if (!predictionsData?.players) return [];
-     const candidates = [];
-     predictionsData.players.forEach(p => {
-        p.evaluations.forEach(ev => {
-           if (ev.historicalAccuracy !== null && ev.historicalAccuracy !== undefined && ev.historicalAccuracy >= 0.55 && (ev.totalGames || 0) >= 3) {
-              candidates.push({
-                 player: p.player,
-                 team: p.team,
-                 opponent: p.opponentAbbr,
-                 category: ev.category,
-                 call: ev.call,
-                 accuracy: (ev.historicalAccuracy * 100).toFixed(0),
-                 totalGames: ev.totalGames || 0
-              });
-           }
-        });
-     });
-     return candidates.sort((a, b) => {
-        const scoreA = (a.accuracy / 100) * Math.log2(a.totalGames + 1);
-        const scoreB = (b.accuracy / 100) * Math.log2(b.totalGames + 1);
-        return scoreB - scoreA;
-     }).slice(0, 5);
+  const { oversBoard, undersBoard } = useMemo(() => {
+    if (!predictionsData?.players) return { oversBoard: [], undersBoard: [] };
+    
+    const overCandidates = [];
+    const underCandidates = [];
+    
+    predictionsData.players.forEach(p => {
+      p.evaluations.forEach(ev => {
+        if (ev.historicalAccuracy === null || ev.historicalAccuracy === undefined) return;
+        if (ev.historicalAccuracy < 0.55) return;
+        if ((ev.totalGames || 0) < 3) return;
+        
+        const entry = {
+          player: p.player,
+          team: p.team,
+          opponent: p.opponentAbbr,
+          category: ev.category,
+          call: ev.call,
+          accuracy: (ev.historicalAccuracy * 100).toFixed(0),
+          totalGames: ev.totalGames || 0,
+          // Weighted score: accuracy * log2(sampleSize + 1)
+          score: (ev.historicalAccuracy) * Math.log2((ev.totalGames || 0) + 1)
+        };
+        
+        if (ev.call.includes('OVER')) {
+          overCandidates.push(entry);
+        } else {
+          underCandidates.push(entry);
+        }
+      });
+    });
+    
+    overCandidates.sort((a, b) => b.score - a.score);
+    underCandidates.sort((a, b) => b.score - a.score);
+    
+    return {
+      oversBoard: overCandidates.slice(0, 25),
+      undersBoard: underCandidates.slice(0, 25)
+    };
   }, [predictionsData]);
 
   return (
@@ -557,35 +573,98 @@ export default function WNBADashboard() {
           
           {!predictorLoading && predictionsData?.matchups && (
              <div style={{marginBottom: '40px', textAlign: 'center'}}>
-                {geniusBoard.length > 0 && (
-                   <div style={{ marginBottom: '30px', padding: '20px', background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.05))', borderRadius: '16px', border: '1px solid rgba(34, 197, 94, 0.3)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px' }}>
-                         <Lock size={24} color="#22c55e" />
-                         <h2 style={{ fontSize: '1.5rem', color: 'white', margin: 0 }}>Genius Accuracy Board</h2>
-                      </div>
-                      <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '20px' }}>
-                         Auto-correcting historical performance log. These are the top {geniusBoard.length} players the engine predicts with the highest historical accuracy.
-                      </p>
-                      <div style={{ display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px' }}>
-                         {geniusBoard.map((gb, i) => (
-                            <div key={i} style={{ minWidth: '220px', background: 'rgba(0,0,0,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--panel-border)', textAlign: 'left' }}>
-                               <div style={{ fontSize: '0.75rem', color: 'var(--accent)', fontWeight: 700, marginBottom: '4px' }}>Rank #{i+1}</div>
-                               <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'white', marginBottom: '4px' }}>{gb.player}</div>
-                               <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '10px' }}>{gb.team} vs {gb.opponent}</div>
-                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <div>
-                                     <span style={{ fontSize: '0.75rem', fontWeight: 700 }}>{gb.category}</span>
-                                     <div style={{ fontSize: '0.7rem', color: gb.call.includes('OVER') ? '#4ade80' : '#ef4444', fontWeight: 800 }}>{gb.call}</div>
+                {(oversBoard.length > 0 || undersBoard.length > 0) && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
+                    gap: '20px',
+                    marginBottom: '30px'
+                  }}>
+                    
+                    {/* ═══ TOP 25 OVERS ═══ */}
+                    {oversBoard.length > 0 && (
+                      <div style={{
+                        padding: '20px',
+                        background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(16, 185, 129, 0.03))',
+                        borderRadius: '16px',
+                        border: '1px solid rgba(34, 197, 94, 0.25)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                          <TrendingUp size={22} color="#22c55e" />
+                          <h3 style={{ fontSize: '1.2rem', color: '#4ade80', margin: 0, fontWeight: 800 }}>
+                            Top {oversBoard.length} Overs
+                          </h3>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
+                          {oversBoard.map((gb, i) => (
+                            <div key={`over-${i}`} style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
+                              border: '1px solid rgba(34, 197, 94, 0.12)'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 800, minWidth: '24px' }}>
+                                  #{i + 1}
+                                </span>
+                                <div>
+                                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', textAlign: 'left' }}>{gb.player}</div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                    {gb.team} vs {gb.opponent} · {gb.category}
                                   </div>
-                                  <div style={{ textAlign: 'right' }}>
-                                     <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#22c55e' }}>{gb.accuracy}%</div>
-                                     <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Hit Rate</div>
-                                  </div>
-                               </div>
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#4ade80' }}>{gb.accuracy}%</div>
+                                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
+                              </div>
                             </div>
-                         ))}
+                          ))}
+                        </div>
                       </div>
-                   </div>
+                    )}
+                
+                    {/* ═══ TOP 25 UNDERS ═══ */}
+                    {undersBoard.length > 0 && (
+                      <div style={{
+                        padding: '20px',
+                        background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(220, 38, 38, 0.03))',
+                        borderRadius: '16px',
+                        border: '1px solid rgba(239, 68, 68, 0.25)'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                          <TrendingDown size={22} color="#ef4444" />
+                          <h3 style={{ fontSize: '1.2rem', color: '#f87171', margin: 0, fontWeight: 800 }}>
+                            Top {undersBoard.length} Unders
+                          </h3>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
+                          {undersBoard.map((gb, i) => (
+                            <div key={`under-${i}`} style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
+                              border: '1px solid rgba(239, 68, 68, 0.12)'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 800, minWidth: '24px' }}>
+                                  #{i + 1}
+                                </span>
+                                <div>
+                                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', textAlign: 'left' }}>{gb.player}</div>
+                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                    {gb.team} vs {gb.opponent} · {gb.category}
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right' }}>
+                                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#f87171' }}>{gb.accuracy}%</div>
+                                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
              
                 <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>

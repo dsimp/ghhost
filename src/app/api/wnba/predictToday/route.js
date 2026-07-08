@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { fetchNBA } from '../fetchNBA';
 import { PrismaClient } from '@prisma/client';
@@ -55,7 +56,9 @@ function rankTeams(teamsData, statIndex, descending = false) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const season = searchParams.get('season') || '2026';
+  const season = searchParams.get('season') || '2025';
+
+  const liveOdds = await fetchAvailableProps('WNBA');
   
   const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
@@ -415,6 +418,11 @@ export async function GET(request) {
        const statEvaluations = [];
 
        ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'TOV', 'PRA'].forEach(statCat => {
+        if (!isLineLive(liveOdds, playerName, statCat)) {
+          return;
+        }
+
+        const avg = stats[statCat];
           let defensiveRank;
           if (statCat === 'PRA') {
              const ptsRank = rankMaps['PTS']?.[oppName] || 6;
