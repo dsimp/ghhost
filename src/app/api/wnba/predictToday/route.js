@@ -434,7 +434,6 @@ export async function GET(request) {
           }
           if (!defensiveRank) return;
 
-          const avg = stats[statCat];
           let call = defensiveRank <= 6 ? 'OVER' : 'UNDER';
           let color = '#a1a1aa';
           
