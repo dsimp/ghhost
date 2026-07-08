@@ -108,29 +108,37 @@ export async function GET(request) {
          }
       });
 
-      // Deduplicate: one entry per player (take their best category)
-      const bestPerPlayer = {};
-      candidates.forEach(c => {
-         const key = `${c.player}-${c.sport}`;
-         if (!bestPerPlayer[key] || c.weightedScore > bestPerPlayer[key].weightedScore) {
-            bestPerPlayer[key] = c;
-         }
-      });
+      // Split into overs and unders
+      const overCandidates = candidates.filter(c => c.call.includes('OVER'));
+      const underCandidates = candidates.filter(c => c.call.includes('UNDER'));
 
-      const deduped = Object.values(bestPerPlayer);
+      // Deduplicate each: one entry per player-sport (take their best category)
+      const dedupList = (list) => {
+         const best = {};
+         list.forEach(c => {
+            const key = `${c.player}-${c.sport}-${c.category}`;
+            if (!best[key] || c.weightedScore > best[key].weightedScore) {
+               best[key] = c;
+            }
+         });
+         return Object.values(best).sort((a, b) => {
+            if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
+            return parseFloat(b.accuracy) - parseFloat(a.accuracy);
+         });
+      };
 
-      // Sort by weighted score (accuracy × volume), tie-break by raw accuracy
-      deduped.sort((a, b) => {
-         if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
-         return parseFloat(b.accuracy) - parseFloat(a.accuracy);
-      });
+      const topOvers = dedupList(overCandidates).slice(0, 25);
+      const topUnders = dedupList(underCandidates).slice(0, 25);
 
-      // Take the top 20 locks across the entire platform
-      const top20 = deduped.slice(0, 20);
+      // Legacy: combined top 20 for backward compatibility
+      const allDeduped = dedupList(candidates);
+      const topLocks = allDeduped.slice(0, 20);
 
       return NextResponse.json({ 
          date: dateStr, 
-         topLocks: top20,
+         topLocks: topLocks,
+         topOvers: topOvers,
+         topUnders: topUnders,
          totalCandidates: candidates.length,
          sportsRepresented: [...new Set(candidates.map(c => c.sport))]
       });
