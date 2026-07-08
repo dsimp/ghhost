@@ -684,13 +684,19 @@ export async function GET(request) {
                  call: call,
                  color: color,
                  rank: defensiveRank,
+                 defensiveRank: defensiveRank,
                  confidence: confidenceScore,
                  oppDesc: `Opp Rank: ${defensiveRank}/12${restText}`,
                  streakDesc: streakText,
                  spatialDesc: spatialText,
                  memoryDesc: memoryText,
                  historicalAccuracy: numAccuracy,
-                 totalGames: pHistory ? pHistory.total : 0
+                 totalGames: pHistory ? pHistory.total : 0,
+                 h2hAvg: h2hAvg,
+                 splitAvg: splitAvgVal,
+                 last10Avg: last10AvgVal,
+                 restDays: restDays,
+                 travelText: travelText
               });
        });
 

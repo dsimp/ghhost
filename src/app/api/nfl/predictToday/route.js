@@ -342,6 +342,7 @@ export async function GET(request) {
             call,
             color,
             rank: null,
+            defensiveRank: null,
             confidence: confidenceScore,
             oppDesc: `vs ${oppAbbr}${weatherText}`,
             streakDesc: weather?.desc || '',

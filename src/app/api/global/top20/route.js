@@ -91,6 +91,7 @@ export async function GET(request) {
                   const weightedScore = accuracy * Math.log2(totalGames + 1);
 
                   candidates.push({
+                     ...ev,
                      player: p.player,
                      team: p.team,
                      opponent: p.opponentAbbr || p.opponent,

@@ -4,8 +4,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import CourtMap from '@/components/CourtMap';
 import TrendGraph from '@/components/TrendGraph';
 import StatLegend from '@/components/StatLegend';
+import FieldMap from '@/components/FieldMap';
+import ExplainerCard from '@/components/ExplainerCard';
+import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Search, Navigation, Lock, Ghost, TrendingUp, TrendingDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useSession } from 'next-auth/react';
-import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Lock, Ghost, TrendingUp, TrendingDown } from 'lucide-react';
 
 export default function NFLDashboard() {
   const { data: session } = useSession();
@@ -380,6 +382,7 @@ export default function NFLDashboard() {
         if ((ev.totalGames || 0) < 3) return;
         
         const entry = {
+          ...ev,
           player: p.player,
           team: p.team,
           opponent: p.opponentAbbr,
@@ -597,27 +600,30 @@ export default function NFLDashboard() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
                           {oversBoard.map((gb, i) => (
-                            <div key={`over-${i}`} style={{
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                              background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
-                              border: '1px solid rgba(34, 197, 94, 0.12)'
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 800, minWidth: '24px' }}>
-                                  #{i + 1}
-                                </span>
-                                <div>
-                                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', textAlign: 'left' }}>{gb.player}</div>
-                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
-                                    {gb.team} vs {gb.opponent} · {gb.category}
+                            <ExplainerCard key={`over-${i}`} prediction={gb} sport="NFL">
+                              <div style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
+                                border: '1px solid rgba(34, 197, 94, 0.12)',
+                                height: '100%', boxSizing: 'border-box'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 800, minWidth: '24px' }}>
+                                    #{i + 1}
+                                  </span>
+                                  <div>
+                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', textAlign: 'left' }}>{gb.player}</div>
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                      {gb.team} vs {gb.opponent} · {gb.category}
+                                    </div>
                                   </div>
                                 </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#4ade80' }}>{gb.accuracy}%</div>
+                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
+                                </div>
                               </div>
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#4ade80' }}>{gb.accuracy}%</div>
-                                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
-                              </div>
-                            </div>
+                            </ExplainerCard>
                           ))}
                         </div>
                       </div>
@@ -639,27 +645,30 @@ export default function NFLDashboard() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
                           {undersBoard.map((gb, i) => (
-                            <div key={`under-${i}`} style={{
-                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                              background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
-                              border: '1px solid rgba(239, 68, 68, 0.12)'
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 800, minWidth: '24px' }}>
-                                  #{i + 1}
-                                </span>
-                                <div>
-                                  <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', textAlign: 'left' }}>{gb.player}</div>
-                                  <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
-                                    {gb.team} vs {gb.opponent} · {gb.category}
+                            <ExplainerCard key={`under-${i}`} prediction={gb} sport="NFL">
+                              <div style={{
+                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
+                                border: '1px solid rgba(239, 68, 68, 0.12)',
+                                height: '100%', boxSizing: 'border-box'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                  <span style={{ fontSize: '0.7rem', color: '#ef4444', fontWeight: 800, minWidth: '24px' }}>
+                                    #{i + 1}
+                                  </span>
+                                  <div>
+                                    <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', textAlign: 'left' }}>{gb.player}</div>
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
+                                      {gb.team} vs {gb.opponent} · {gb.category}
+                                    </div>
                                   </div>
                                 </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#f87171' }}>{gb.accuracy}%</div>
+                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
+                                </div>
                               </div>
-                              <div style={{ textAlign: 'right' }}>
-                                <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#f87171' }}>{gb.accuracy}%</div>
-                                <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
-                              </div>
-                            </div>
+                            </ExplainerCard>
                           ))}
                         </div>
                       </div>
@@ -732,19 +741,18 @@ export default function NFLDashboard() {
                           </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                         {p.evaluations.map(ev => {
+                            {p.evaluations.map(ev => {
                             const flipKey = `${p.playerId}-${ev.category}`;
                             const isFlipped = flippedCards[flipKey];
                             const loadedH2H = h2hData[p.playerId]?.data || riskResults[p.playerId]?.h2hAverages;
                             const h2hLoading = h2hData[p.playerId]?.loading && !loadedH2H;
-                            
-                            const catLower = ev.category === '3PM' ? 'fg3m' : ev.category.toLowerCase();
+                            const catLower = ev.category.toLowerCase();
                             const h2hVal = loadedH2H ? loadedH2H[catLower] : null;
 
-                            const lastGameValKey = `lastGame${catLower.charAt(0).toUpperCase() + catLower.slice(1)}`;
-                            const lastGameVal = loadedH2H ? loadedH2H[lastGameValKey] : null;
+                             const lastGameValKey = `lastGame${catLower.charAt(0).toUpperCase() + catLower.slice(1)}`;
+                             const lastGameVal = loadedH2H ? loadedH2H[lastGameValKey] : null;
 
-                            return (
+                             return (
                                <div key={ev.category} 
                                     onClick={() => handleCardFlip(p.playerId, p.opponentAbbr, ev.category)}
                                     style={{ 
@@ -762,19 +770,31 @@ export default function NFLDashboard() {
                                   }}>
                                      {/* FRONT OF CARD */}
                                      <div style={{
-                                        position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
-                                        background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', 
-                                        border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column'
-                                     }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                           <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 }}>{ev.category}</span>
-                                           <span style={{ fontSize: '0.7rem', color: ev.color, fontWeight: 800, padding: '2px 6px', background: `${ev.color}20`, borderRadius: '4px' }}>
-                                              {ev.call}
-                                           </span>
-                                        </div>
-                                        <div style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '2px' }}>{ev.avg}</div>
-                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
-                                     </div>
+                                         position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
+                                         background: 'rgba(255,255,255,0.03)', padding: '10px 12px', borderRadius: '10px', 
+                                         border: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column'
+                                      }}>
+                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                               <span style={{ color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{ev.category}</span>
+                                               <ExplainerCard 
+                                                  overlayMode={true}
+                                                  triggerType="icon"
+                                                  sport="NFL"
+                                                  prediction={{
+                                                     ...ev, player: p.player, team: p.team, opponent: p.opponentAbbr,
+                                                     accuracy: (ev.historicalAccuracy * 100).toFixed(0),
+                                                     score: (ev.historicalAccuracy) * Math.log2((ev.totalGames || 0) + 1)
+                                                  }}
+                                               />
+                                            </div>
+                                            <span style={{ fontSize: '0.6rem', color: ev.color, fontWeight: 800, padding: '3px 10px', background: `${ev.color}18`, borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.03em', border: `1px solid ${ev.color}30` }}>
+                                               {ev.call}
+                                            </span>
+                                         </div>
+                                         <div style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '2px', letterSpacing: '-0.02em' }}>{ev.avg}</div>
+                                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{ev.oppDesc}</div>
+                                      </div>
 
                                      {/* BACK OF CARD */}
                                      <div style={{

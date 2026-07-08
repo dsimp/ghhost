@@ -260,5 +260,8 @@ export function analyzePlayerForm(
     restModifier,
     trendModifier,
     call,
+    h2hAvg: h2hAvgV,
+    splitAvg: splitAvgV,
+    last10Avg: l10Avg,
   };
 }

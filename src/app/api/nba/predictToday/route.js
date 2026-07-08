@@ -425,13 +425,19 @@ export async function GET(request) {
           call,
           color,
           rank: matchupResult.defensiveRank,
+          defensiveRank: matchupResult.defensiveRank,
           confidence: confidenceScore,
           oppDesc: `Opp Rank: ${matchupResult.defensiveRank}/30${formResult.restText}${matchupResult.travelText}`,
           streakDesc: formResult.streakText,
           spatialDesc: spatialResult.spatialText,
           memoryDesc: memoryResult.memoryText,
           historicalAccuracy: memoryResult.numAccuracy,
-          totalGames: memoryResult.totalGames
+          totalGames: memoryResult.totalGames,
+          h2hAvg: formResult.h2hAvg,
+          splitAvg: formResult.splitAvg,
+          last10Avg: formResult.last10Avg,
+          restDays: formResult.restDays,
+          travelText: matchupResult.travelText
         });
       });
 

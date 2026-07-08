@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { usePro } from '@/context/ProContext';
 import TransparencyWindow from '@/components/TransparencyWindow';
+import ExplainerCard from '@/components/ExplainerCard';
 import { Ghost, TrendingUp, TrendingDown } from 'lucide-react';
 
 export default function Home() {
@@ -50,40 +51,44 @@ export default function Home() {
     const sc = sportColor(entry.sport);
 
     return (
-      <div key={`${isOver ? 'over' : 'under'}-${index}`} style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
-        border: `1px solid ${borderColor}`,
-        transition: 'transform 0.2s, box-shadow 0.2s',
-      }}
-        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 4px 16px ${accentColor}15`; }}
-        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: '0.7rem', color: accentColor, fontWeight: 800, minWidth: '24px', flexShrink: 0 }}>
-            #{index + 1}
-          </span>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.player}</span>
-              <span style={{
-                background: `${sc}22`, color: sc, border: `1px solid ${sc}44`,
-                padding: '1px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 800,
-                letterSpacing: '0.04em', flexShrink: 0
-              }}>
-                {entry.sport}
-              </span>
-            </div>
-            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
-              {entry.team} vs {entry.opponent} · {entry.category}
+      <ExplainerCard key={`${isOver ? 'over' : 'under'}-${index}`} prediction={entry} sport={entry.sport}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
+          border: `1px solid ${borderColor}`,
+          transition: 'transform 0.2s, box-shadow 0.2s',
+          height: '100%',
+          boxSizing: 'border-box'
+        }}
+          onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = `0 4px 16px ${accentColor}15`; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: '0.7rem', color: accentColor, fontWeight: 800, minWidth: '24px', flexShrink: 0 }}>
+              #{index + 1}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'white', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{entry.player}</span>
+                <span style={{
+                  background: `${sc}22`, color: sc, border: `1px solid ${sc}44`,
+                  padding: '1px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 800,
+                  letterSpacing: '0.04em', flexShrink: 0
+                }}>
+                  {entry.sport}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'left' }}>
+                {entry.team} vs {entry.opponent} · {entry.category}
+              </div>
             </div>
           </div>
+          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '10px' }}>
+            <div style={{ fontSize: '1.1rem', fontWeight: 900, color: textColor }}>{entry.accuracy}%</div>
+            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{entry.totalGames} plays</div>
+          </div>
         </div>
-        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '10px' }}>
-          <div style={{ fontSize: '1.1rem', fontWeight: 900, color: textColor }}>{entry.accuracy}%</div>
-          <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{entry.totalGames} plays</div>
-        </div>
-      </div>
+      </ExplainerCard>
     );
   };
 

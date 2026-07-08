@@ -385,11 +385,12 @@ export async function GET(request) {
                // Streak Momentum & Rest Days
                let streakText = "";
                let restText = "";
+               let restDays = null;
               if (gameLogs.length > 0) {
                   // Calculate Rest Days from last game
                   const lastGameDate = new Date(gameLogs[0].date);
                   const today = new Date();
-                  const restDays = Math.floor((today - lastGameDate) / (1000 * 60 * 60 * 24));
+                  restDays = Math.floor((today - lastGameDate) / (1000 * 60 * 60 * 24));
                   
                   if (restDays === 0) {
                       confidenceScore -= 10;
@@ -580,6 +581,7 @@ export async function GET(request) {
                     call: call,
                     color: color,
                     rank: oppPitcher.era,
+                    defensiveRank: oppPitcher.era,
                     confidence: confidenceScore,
                     oppDesc: `vs ${oppPitcher.hand}HP (${oppPitcher.era.toFixed(2)} ERA)${restText}${weatherText}`,
                     streakDesc: streakText,
@@ -587,7 +589,9 @@ export async function GET(request) {
                     memoryDesc: memoryText,
                     historicalAccuracy: numAccuracy,
                     totalGames: pHistory ? pHistory.total : 0,
-                    pitcherHand: oppPitcher.hand
+                    pitcherHand: oppPitcher.hand,
+                    splitAvg: splitAvg,
+                    restDays: restDays
                  });
               }
            });
@@ -758,13 +762,15 @@ export async function GET(request) {
                       call: call,
                       color: color,
                       rank: pProfile.era,
+                      defensiveRank: pProfile.era,
                       confidence: confidenceScore,
                       oppDesc: `vs ${oppName}`,
                       streakDesc: streakText,
                       spatialDesc: `Season ERA: ${pProfile.era.toFixed(2)}`,
                       memoryDesc: memoryText,
                       historicalAccuracy: numAccuracy,
-                      totalGames: pHistory ? pHistory.total : 0
+                      totalGames: pHistory ? pHistory.total : 0,
+                      restDays: restDays
                    });
                 }
             });
