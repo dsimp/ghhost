@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
+import { safeWriteCache } from '../../../../engines/shared/cacheGuard';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { fetchNBA } from '../fetchNBA';
 import { PrismaClient } from '@prisma/client';
@@ -468,13 +469,9 @@ export async function GET(request) {
     };
 
     try {
-       await prisma.dailyCache.upsert({
-          where: { sport_gameDate: { sport: 'NBA', gameDate } },
-          update: { timestamp: Date.now(), payload: payload },
-          create: { sport: 'NBA', gameDate, timestamp: Date.now(), payload: payload }
-       });
+       await safeWriteCache('NBA', gameDate, payload);
     } catch (e) {
-       console.error('Failed to write cache', e);
+       console.error('Failed to write NBA cache', e);
     }
 
     return NextResponse.json(payload);

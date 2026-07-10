@@ -600,7 +600,7 @@ export default function NFLDashboard() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
                           {oversBoard.map((gb, i) => (
-                            <ExplainerCard key={`over-${i}`} prediction={gb} sport="NFL">
+                            <ExplainerCard key={`over-${i}`} prediction={gb} sport="NFL" overlayMode={true} triggerType="wrap">
                               <div style={{
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                 background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
@@ -645,7 +645,7 @@ export default function NFLDashboard() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
                           {undersBoard.map((gb, i) => (
-                            <ExplainerCard key={`under-${i}`} prediction={gb} sport="NFL">
+                            <ExplainerCard key={`under-${i}`} prediction={gb} sport="NFL" overlayMode={true} triggerType="wrap">
                               <div style={{
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                 background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',

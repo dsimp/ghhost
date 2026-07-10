@@ -97,7 +97,11 @@ export async function fetchAvailableProps(sport) {
     }
   }
 
-  // 5. Cache and return
+  // 5. Cache and return — if no props found, return null (don't filter)
+  if (Object.keys(propMap).length === 0) {
+    console.warn(`[OddsFetcher] No player props found for ${sport}. Predictions will run unfiltered.`);
+    return null;
+  }
   oddsCache[cacheKey] = { ts: Date.now(), data: propMap };
   return propMap;
 }
@@ -138,7 +142,7 @@ function normalizePlayerName(name) {
 
 // Utility: check if a specific player+category is available on the books
 export function isLineLive(propMap, playerName, category) {
-  if (!propMap) return true; // No odds data = don't filter
+  if (!propMap || Object.keys(propMap).length === 0) return true; // No odds data = don't filter
   const key = `${normalizePlayerName(playerName)}_${category}`;
   return !!propMap[key];
 }

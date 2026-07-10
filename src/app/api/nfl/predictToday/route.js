@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
+import { fetchAvailableProps, isLineLive } from '../../../../engines/shared/oddsFetcher';
+import { safeWriteCache } from '../../../../engines/shared/cacheGuard';
 import { fetchNFL } from '../fetchNFL';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { PrismaClient } from '@prisma/client';
@@ -144,11 +145,7 @@ export async function GET(request) {
     if (upcomingGames.length === 0) {
        const emptyPayload = { matchups: [], players: [], message: 'No NFL games scheduled for today. Check back during the season!' };
        try {
-         await prisma.dailyCache.upsert({
-           where: { sport_gameDate: { sport: 'NFL', gameDate } },
-           update: { timestamp: Date.now(), payload: emptyPayload },
-           create: { sport: 'NFL', gameDate, timestamp: Date.now(), payload: emptyPayload }
-         });
+         await safeWriteCache('NFL', gameDate, emptyPayload);
        } catch(e) {}
        return NextResponse.json(emptyPayload);
     }
@@ -382,13 +379,9 @@ export async function GET(request) {
     const payload = { matchups: todayMatchups, players: playerPredictions };
 
     try {
-       await prisma.dailyCache.upsert({
-          where: { sport_gameDate: { sport: 'NFL', gameDate } },
-          update: { timestamp: Date.now(), payload },
-          create: { sport: 'NFL', gameDate, timestamp: Date.now(), payload }
-       });
+       await safeWriteCache('NFL', gameDate, payload);
     } catch (e) {
-       console.error('Failed to write cache', e);
+       console.error('Failed to write NFL cache', e);
     }
 
     return NextResponse.json(payload);

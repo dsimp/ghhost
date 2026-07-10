@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
+import { fetchAvailableProps, isLineLive } from '../../../../engines/shared/oddsFetcher';
+import { safeWriteCache } from '../../../../engines/shared/cacheGuard';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { fetchNBA } from '../fetchNBA';
 import { PrismaClient } from '@prisma/client';
@@ -56,7 +57,7 @@ function rankTeams(teamsData, statIndex, descending = false) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const season = searchParams.get('season') || '2025';
+  const season = searchParams.get('season') || '2026';
 
   const liveOdds = await fetchAvailableProps('WNBA');
   
@@ -113,11 +114,7 @@ export async function GET(request) {
     if (!gamesRowSet || gamesRowSet.length === 0) {
       const emptyPayload = { matchups: [], players: [], message: 'No games scheduled for today.' };
       try {
-        await prisma.dailyCache.upsert({
-          where: { sport_gameDate: { sport: 'WNBA', gameDate } },
-          update: { timestamp: Date.now(), payload: emptyPayload },
-          create: { sport: 'WNBA', gameDate, timestamp: Date.now(), payload: emptyPayload }
-        });
+        await safeWriteCache('WNBA', gameDate, emptyPayload);
       } catch(e) {}
       return NextResponse.json(emptyPayload);
     }
@@ -728,13 +725,9 @@ export async function GET(request) {
     };
 
     try {
-       await prisma.dailyCache.upsert({
-          where: { sport_gameDate: { sport: 'WNBA', gameDate } },
-          update: { timestamp: Date.now(), payload: payload },
-          create: { sport: 'WNBA', gameDate, timestamp: Date.now(), payload: payload }
-       });
+       await safeWriteCache('WNBA', gameDate, payload);
     } catch (e) {
-       console.error('Failed to write cache', e);
+       console.error('Failed to write WNBA cache', e);
     }
 
     return NextResponse.json(payload);

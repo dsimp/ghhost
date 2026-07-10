@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { fetchAvailableProps, isLineLive } from '../../../../engines/shared/oddsFetcher';
+import { safeWriteCache } from '../../../../engines/shared/cacheGuard';
 import { fetchMLB } from '../fetchMLB';
 import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
 import { PrismaClient } from '@prisma/client';
@@ -623,6 +624,14 @@ export async function GET(request) {
            if (!pProfile || !pProfile.gameLogs || pProfile.gameLogs.length === 0) return;
 
            const gameLogs = pProfile.gameLogs;
+
+           // Calculate rest days for pitcher
+           let restDays = null;
+           if (gameLogs.length > 0 && gameLogs[0].date) {
+              const lastGameDate = new Date(gameLogs[0].date);
+              const today = new Date();
+              restDays = Math.floor((today - lastGameDate) / (1000 * 60 * 60 * 24));
+           }
            
            const statEvaluations = [];
            
@@ -804,11 +813,7 @@ export async function GET(request) {
     };
 
     try {
-       await prisma.dailyCache.upsert({
-          where: { sport_gameDate: { sport: 'MLB', gameDate } },
-          update: { timestamp: Date.now(), payload: payload },
-          create: { sport: 'MLB', gameDate, timestamp: Date.now(), payload: payload }
-       });
+       await safeWriteCache('MLB', gameDate, payload);
     } catch (e) {
        console.error('Failed to write cache', e);
     }

@@ -10,6 +10,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [topOvers, setTopOvers] = useState([]);
   const [topUnders, setTopUnders] = useState([]);
+  const [unfilteredWarning, setUnfilteredWarning] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const { isPro } = usePro();
 
@@ -30,6 +31,7 @@ export default function Home() {
       .then(data => {
          if (data.topOvers) setTopOvers(data.topOvers);
          if (data.topUnders) setTopUnders(data.topUnders);
+         if (data.unfilteredWarning) setUnfilteredWarning(data.unfilteredWarning);
          setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -51,7 +53,13 @@ export default function Home() {
     const sc = sportColor(entry.sport);
 
     return (
-      <ExplainerCard key={`${isOver ? 'over' : 'under'}-${index}`} prediction={entry} sport={entry.sport}>
+      <ExplainerCard 
+        key={`${isOver ? 'over' : 'under'}-${index}`} 
+        prediction={entry} 
+        sport={entry.sport}
+        overlayMode={true}
+        triggerType="wrap"
+      >
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '10px 14px',
@@ -146,6 +154,17 @@ export default function Home() {
                   </div>
                ) : (
                   <>
+                     {unfilteredWarning && (
+                        <div style={{
+                           background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b', color: '#f59e0b',
+                           padding: '12px 16px', borderRadius: '10px', marginBottom: '20px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '10px'
+                        }}>
+                           <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+                           <div>
+                              <strong>Odds API Unfiltered Mode:</strong> Prop markets are either not posted yet or the API is unavailable. Predictions are currently running unfiltered without checking live bookmaker availability.
+                           </div>
+                        </div>
+                     )}
                      {/* ═══ DUAL GENIUS BOARDS ═══ */}
                      <div style={{
                        display: 'grid',

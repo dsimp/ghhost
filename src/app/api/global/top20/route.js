@@ -61,18 +61,20 @@ export async function GET(request) {
       }
 
       let candidates = [];
+      let unfilteredWarning = false;
 
       caches.forEach(cache => {
          const sport = cache.sport;
          const data = cache.payload;
 
-         if (data && data.players) {
+         if (data && data.players && data.players.length > 0) {
+            let cacheHasEvals = false;
             data.players.forEach(p => {
                if (!p.evaluations) return;
                
                const playerId = String(p.playerId);
-               
                p.evaluations.forEach(ev => {
+                  cacheHasEvals = true;
                   // Look up actual history (DNP-excluded)
                   const playerHist = historyMap[playerId]?.[ev.category];
                   
@@ -106,6 +108,9 @@ export async function GET(request) {
                   });
                });
             });
+            if (!cacheHasEvals) {
+                unfilteredWarning = true;
+            }
          }
       });
 
@@ -141,7 +146,8 @@ export async function GET(request) {
          topOvers: topOvers,
          topUnders: topUnders,
          totalCandidates: candidates.length,
-         sportsRepresented: [...new Set(candidates.map(c => c.sport))]
+         sportsRepresented: [...new Set(candidates.map(c => c.sport))],
+         unfilteredWarning: unfilteredWarning
       });
 
    } catch (error) {
