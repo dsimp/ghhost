@@ -45,7 +45,7 @@ export async function fetchAvailableProps(sport) {
   // Define which markets to request per sport
   const marketsBySort = {
     'NBA': 'player_points,player_rebounds,player_assists,player_threes,player_blocks,player_steals',
-    'WNBA': 'player_points,player_rebounds,player_assists,player_threes,player_blocks,player_steals',
+    'WNBA': 'player_points,player_rebounds,player_assists,player_threes',
     'MLB': 'batter_hits,batter_total_bases,batter_home_runs,batter_rbis,batter_stolen_bases,pitcher_strikeouts',
     'NFL': 'player_passing_yards,player_rushing_yards,player_receiving_yards,player_passing_tds,player_receptions'
   };

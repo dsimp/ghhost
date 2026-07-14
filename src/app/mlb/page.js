@@ -5,6 +5,7 @@ import FieldMap from '@/components/FieldMap';
 import TrendGraph from '@/components/TrendGraph';
 import StatLegend from '@/components/StatLegend';
 import ExplainerCard from '@/components/ExplainerCard';
+import GhostLogo from '@/components/GhostLogo';
 import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Search, Navigation, Lock, Ghost, TrendingUp, TrendingDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 
@@ -13,7 +14,7 @@ export default function MLBHome() {
   const [teams, setTeams] = useState([]);
   
   const [searchTerm, setSearchTerm] = useState('');
-  const [mode, setMode] = useState('HITTER'); 
+  const [mode, setMode] = useState('PREDICTOR'); 
   
   const [selectedEntity, setSelectedEntity] = useState(null); 
   const [loading, setLoading] = useState(false);
@@ -40,7 +41,12 @@ export default function MLBHome() {
   const [predictorTrends, setPredictorTrends] = useState({});
   
   const [selectedGameFilter, setSelectedGameFilter] = useState('');
-  const [flippedFullCards, setFlippedFullCards] = useState({});
+  const [selectedPlayerFilter, setSelectedPlayerFilter] = useState('');
+  const [selectedStatFilter, setSelectedStatFilter] = useState('');
+  
+  const [expandedOvers, setExpandedOvers] = useState(false);
+  const [expandedUnders, setExpandedUnders] = useState(false);
+  
   const [playerLogsData, setPlayerLogsData] = useState({});
   const [trendStatMap, setTrendStatMap] = useState({});
 
@@ -271,6 +277,11 @@ export default function MLBHome() {
       }
   };
 
+  useEffect(() => {
+    if (mode === 'PREDICTOR' && !predictionsData && !predictorLoading) {
+      loadPredictor();
+    }
+  }, []);
   const handleFullCardFlip = async (playerId) => {
     // Freemium Lock
     if (!isPro) {
@@ -322,8 +333,10 @@ export default function MLBHome() {
     setSearchTerm('');
     setHitData([]);
     setPlayerStats(null);
-    setActiveZone(null);
     
+    setSelectedGameFilter('');
+    setSelectedPlayerFilter('');
+    setSelectedStatFilter('');
     if (newMode === 'PREDICTOR' && !predictionsData) {
        loadPredictor();
     }
@@ -423,41 +436,79 @@ export default function MLBHome() {
   }, [predictionsData]);
 
   return (
-    <main className="main-container">
-      <header className="header">
-        <h1>{mode === 'PREDICTOR' ? 'MLB Daily Predictor Engine' : (mode === 'HITTER' ? 'Hitter Predictive Engine' : 'Pitcher Defense Analytics')}</h1>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '20px', flexWrap: 'wrap' }}>
-          <button onClick={() => onModeToggle('HITTER')} style={{ padding: '8px 24px', borderRadius: '999px', background: mode === 'HITTER' ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: 'white', cursor: 'pointer', transition: '0.3s' }}>
-            <Crosshair style={{display:'inline', verticalAlign:'middle', marginRight:'8px'}} size={18}/> Hitter Evaluation
-          </button>
-          <button onClick={() => onModeToggle('PITCHER')} style={{ padding: '8px 24px', borderRadius: '999px', background: mode === 'PITCHER' ? '#8b5cf6' : 'transparent', border: '1px solid #8b5cf6', color: 'white', cursor: 'pointer', transition: '0.3s' }}>
-            <ShieldAlert style={{display:'inline', verticalAlign:'middle', marginRight:'8px'}} size={18}/> Pitcher Profile
-          </button>
-          <button onClick={() => onModeToggle('PREDICTOR')} style={{ padding: '8px 24px', borderRadius: '999px', background: mode === 'PREDICTOR' ? '#f59e0b' : 'transparent', border: '1px solid #f59e0b', color: 'white', cursor: 'pointer', transition: '0.3s' }}>
-            <Zap style={{display:'inline', verticalAlign:'middle', marginRight:'8px'}} size={18}/> Daily Predictor
-          </button>
+    <main className="sport-layout-container">
+      {/* ═══ SIDEBAR NAVIGATION ═══ */}
+      <aside className="sport-sidebar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', padding: '0 8px' }}>
+          <GhostLogo size={32} glowColor="#00d4aa" />
+          <div>
+            <h1 style={{ fontSize: '1.4rem', margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-main)' }}>MLB</h1>
+            <p style={{ color: 'var(--accent)', fontSize: '0.65rem', letterSpacing: '0.1em', textTransform: 'uppercase', margin: 0 }}>Engine</p>
+          </div>
         </div>
-      </header>
 
-      {/* SEARCH SECTION ONLY IN NON-PREDICTOR MODE */}
-      {mode !== 'PREDICTOR' && (
-        <section className="search-section">
-          <div className="search-bar" style={{ position: 'relative' }}>
-            <input type="text" className="input-glass" placeholder={mode === 'HITTER' ? "Search for a hitter..." : "Search for a pitcher..."} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            {searchTerm && (!selectedEntity || (selectedEntity.fullName || selectedEntity.name).toLowerCase() !== searchTerm.toLowerCase()) && (
-               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--panel-bg)', borderRadius: '12px', marginTop: '8px', zIndex: 50, maxHeight: '300px', overflowY: 'auto' }}>
-                  {activeSearchList.filter(p => (p.fullName || p.name).toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10).map(item => (
-                    <div key={item.id} onClick={() => handleSelect(item)} style={{ padding: '12px 16px', cursor: 'pointer', borderBottom: '1px solid var(--panel-border)' }}>
-                     {item.fullName || item.name} <span style={{color: 'var(--text-muted)'}}>({item.team}{item.position ? ` · ${item.position}` : ''})</span>
+        <button onClick={() => onModeToggle('PREDICTOR')} style={{ padding: '12px 16px', borderRadius: '12px', background: mode === 'PREDICTOR' ? 'rgba(0, 212, 170, 0.1)' : 'transparent', border: mode === 'PREDICTOR' ? '1px solid rgba(0, 212, 170, 0.3)' : '1px solid transparent', color: mode === 'PREDICTOR' ? '#00d4aa' : 'var(--text-main)', cursor: 'pointer', transition: '0.2s', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '12px', fontWeight: 600 }}>
+          <Zap size={18} /> Daily Predictor
+        </button>
+
+        <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ position: 'relative' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}><Crosshair size={14}/> Hitter Eval</div>
+            <input 
+              type="text" 
+              className="input-glass" 
+              placeholder="Search hitter..." 
+              value={mode === 'HITTER' ? searchTerm : ''} 
+              onFocus={() => { if (mode !== 'HITTER') onModeToggle('HITTER'); }}
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              style={{ width: '100%', padding: '10px 14px', fontSize: '0.85rem' }}
+            />
+            {mode === 'HITTER' && searchTerm && (!selectedEntity || selectedEntity.name.toLowerCase() !== searchTerm.toLowerCase()) && (
+               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--panel-bg)', borderRadius: '12px', marginTop: '4px', zIndex: 50, maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--panel-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                  {players.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10).map(item => (
+                    <div key={item.id} onClick={() => handleSelect(item)} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--panel-border)', fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                      {item.name} <span style={{color: 'var(--text-muted)', fontSize: '0.75rem'}}>({item.team}{item.position ? ` · ${item.position}` : ''})</span>
                     </div>
                   ))}
                </div>
             )}
           </div>
-        </section>
+
+          <div style={{ position: 'relative', marginTop: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}><ShieldAlert size={14}/> Pitcher Profile</div>
+            <input 
+              type="text" 
+              className="input-glass" 
+              placeholder="Search pitcher..." 
+              value={mode === 'PITCHER' ? searchTerm : ''} 
+              onFocus={() => { if (mode !== 'PITCHER') onModeToggle('PITCHER'); }}
+              onChange={(e) => setSearchTerm(e.target.value)} 
+              style={{ width: '100%', padding: '10px 14px', fontSize: '0.85rem' }}
+            />
+            {mode === 'PITCHER' && searchTerm && (!selectedEntity || selectedEntity.name.toLowerCase() !== searchTerm.toLowerCase()) && (
+               <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--panel-bg)', borderRadius: '12px', marginTop: '4px', zIndex: 50, maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--panel-border)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                  {players.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase())).slice(0, 10).map(item => (
+                    <div key={item.id} onClick={() => handleSelect(item)} style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--panel-border)', fontSize: '0.85rem', color: 'var(--text-main)' }}>
+                      {item.name} <span style={{color: 'var(--text-muted)', fontSize: '0.75rem'}}>({item.team}{item.position ? ` · ${item.position}` : ''})</span>
+                    </div>
+                  ))}
+               </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* ═══ MAIN CONTENT AREA ═══ */}
+      <div className="sport-main-content">
+      {mode !== 'PREDICTOR' && !selectedEntity && !loading && (
+        <div style={{ textAlign: 'center', padding: '100px 20px', color: 'var(--text-muted)' }}>
+          <GhostLogo size={48} glowColor="#4a5568" animate={false} style={{ marginBottom: '20px', opacity: 0.5 }} />
+          <h2>Ready to Evaluate</h2>
+          <p>Search for a hitter or pitcher in the sidebar to load their analytics.</p>
+        </div>
       )}
 
-      {loading && <div className="loading">Analyzing MLB datasets...</div>}
+      {loading && <div className="loading" style={{ marginTop: '40px' }}>Analyzing MLB datasets...</div>}
       {error && <div style={{color: '#ef4444', textAlign: 'center', marginTop: '20px'}}><ShieldAlert /> {error}</div>}
 
       {/* PLAYER / TEAM ANALYTICS VIEW */}
@@ -667,7 +718,7 @@ export default function MLBHome() {
                           </h3>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
-                          {oversBoard.map((gb, i) => (
+                          {(expandedOvers ? oversBoard : oversBoard.slice(0, 4)).map((gb, i) => (
                             <ExplainerCard key={`over-${i}`} prediction={gb} sport="MLB" overlayMode={true} triggerType="wrap">
                               <div style={{
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -694,6 +745,11 @@ export default function MLBHome() {
                             </ExplainerCard>
                           ))}
                         </div>
+                        {oversBoard.length > 4 && (
+                          <button onClick={() => setExpandedOvers(!expandedOvers)} style={{ width: '100%', marginTop: '12px', padding: '8px', background: 'rgba(34, 197, 94, 0.1)', border: '1px dashed rgba(34, 197, 94, 0.3)', color: '#4ade80', borderRadius: '8px', cursor: 'pointer', transition: '0.2s', fontSize: '0.8rem', fontWeight: 700 }}>
+                            {expandedOvers ? 'Show Less' : `Show All ${oversBoard.length} Overs`}
+                          </button>
+                        )}
                       </div>
                     )}
                 
@@ -712,7 +768,7 @@ export default function MLBHome() {
                           </h3>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '600px', overflowY: 'auto' }}>
-                          {undersBoard.map((gb, i) => (
+                          {(expandedUnders ? undersBoard : undersBoard.slice(0, 4)).map((gb, i) => (
                             <ExplainerCard key={`under-${i}`} prediction={gb} sport="MLB" overlayMode={true} triggerType="wrap">
                               <div style={{
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -739,43 +795,85 @@ export default function MLBHome() {
                             </ExplainerCard>
                           ))}
                         </div>
+                        {undersBoard.length > 4 && (
+                          <button onClick={() => setExpandedUnders(!expandedUnders)} style={{ width: '100%', marginTop: '12px', padding: '8px', background: 'rgba(239, 68, 68, 0.1)', border: '1px dashed rgba(239, 68, 68, 0.3)', color: '#f87171', borderRadius: '8px', cursor: 'pointer', transition: '0.2s', fontSize: '0.8rem', fontWeight: 700 }}>
+                            {expandedUnders ? 'Show Less' : `Show All ${undersBoard.length} Unders`}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
              
                 <StatLegend sport="MLB" />
-                <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>
-                <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginTop: '10px', flexWrap: 'wrap'}}>
-                  {predictionsData.matchups.map((m, i) => {
-                    const gameLabel = `${m.away} @ ${m.home}`;
-                    const isSelected = selectedGameFilter === gameLabel;
-                    return (
-                      <div key={i} 
-                           onClick={() => setSelectedGameFilter(isSelected ? '' : gameLabel)}
-                           style={{
-                             background: isSelected ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255,255,255,0.05)', 
-                             padding: '8px 16px', 
-                             borderRadius: '8px', 
-                             border: isSelected ? '1px solid #3b82f6' : '1px solid var(--panel-border)',
-                             cursor: 'pointer',
-                             transition: '0.2s'
-                           }}>
-                         {m.away} <span style={{color: '#3b82f6'}}>@</span> {m.home}
-                      </div>
-                    );
-                  })}
+                <h2 style={{fontSize: '1.5rem', color: 'var(--text-muted)', marginBottom: '15px'}}>Today's Slate ({predictionsData.matchups.length} Matchups Found)</h2>
+                <div style={{display: 'flex', justifyContent: 'center', gap: '15px', marginBottom: '25px', flexWrap: 'wrap'}}>
+                  <select 
+                    className="dropdown-glass" 
+                    value={selectedGameFilter} 
+                    onChange={(e) => {
+                      setSelectedGameFilter(e.target.value);
+                      setSelectedPlayerFilter(''); // Reset player when game changes
+                    }}
+                    style={{ padding: '10px 20px', minWidth: '200px' }}
+                  >
+                    <option value="">All Games</option>
+                    {predictionsData.matchups.map((m, i) => {
+                      const gameLabel = `${m.away} @ ${m.home}`;
+                      return <option key={i} value={gameLabel}>{gameLabel}</option>;
+                    })}
+                  </select>
+
+                  <select 
+                    className="dropdown-glass" 
+                    value={selectedPlayerFilter} 
+                    onChange={(e) => setSelectedPlayerFilter(e.target.value)}
+                    style={{ padding: '10px 20px', minWidth: '200px' }}
+                  >
+                    <option value="">All Players</option>
+                    {Array.from(new Set(
+                      predictionsData.players
+                        .filter(p => !selectedGameFilter || selectedGameFilter.includes(p.opponent))
+                        .map(p => p.player)
+                    )).sort().map((player, i) => (
+                      <option key={i} value={player}>{player}</option>
+                    ))}
+                  </select>
+
+                  <select 
+                    className="dropdown-glass" 
+                    value={selectedStatFilter} 
+                    onChange={(e) => setSelectedStatFilter(e.target.value)}
+                    style={{ padding: '10px 20px', minWidth: '200px' }}
+                  >
+                    <option value="">All Stats</option>
+                    {Array.from(new Set(
+                      predictionsData.players.flatMap(p => p.evaluations.map(ev => ev.category))
+                    )).sort().map((cat, i) => (
+                      <option key={i} value={cat}>{cat}</option>
+                    ))}
+                  </select>
                 </div>
              </div>
           )}
 
           {!predictorLoading && predictionsData?.players && (
-             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 380px), 1fr))', gap: '20px' }}>
+             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 360px), 1fr))', gap: '20px' }}>
                 {(() => {
-                   let displayList = predictionsData.players.filter(p => !selectedGameFilter || selectedGameFilter.includes(p.opponent));
-                   if (!isPro) displayList = displayList.slice(0, 4); // Freemium Lock
+                   let displayList = predictionsData.players.filter(p => {
+                     const matchesGame = !selectedGameFilter || selectedGameFilter.includes(p.opponent);
+                     const matchesPlayer = !selectedPlayerFilter || p.player === selectedPlayerFilter;
+                     const matchesStat = !selectedStatFilter || p.evaluations.some(ev => ev.category === selectedStatFilter);
+                     return matchesGame && matchesPlayer && matchesStat;
+                   });
+                   if (!isPro) displayList = displayList.slice(0, 4);
+                   
+                   if (displayList.length === 0) {
+                     return <div style={{ color: 'var(--text-muted)', textAlign: 'center', gridColumn: '1 / -1', padding: '40px 0' }}>No players found matching the selected filters.</div>;
+                   }
                    
                    return displayList.map((pred, idx) => {
+                      const visibleEvaluations = pred.evaluations.filter(ev => !selectedStatFilter || ev.category === selectedStatFilter);
                       const isFullFlipped = flippedFullCards[pred.playerId];
                       const trendData = playerLogsData[pred.playerId];
                       
@@ -807,7 +905,7 @@ export default function MLBHome() {
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                   {pred.evaluations.map(evalData => (
+                                   {visibleEvaluations.map(evalData => (
                                       <div key={evalData.category} style={{
                                             background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', 
                                             border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column'
@@ -976,7 +1074,7 @@ export default function MLBHome() {
           )}
         </div>
       )}
-
+      </div>
     </main>
   );
 }

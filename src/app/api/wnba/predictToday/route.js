@@ -374,7 +374,7 @@ export async function GET(request) {
        
        // PRA combo (Points + Rebounds + Assists)
        const praAvg = (parseFloat(stats['PTS']) || 0) + (parseFloat(stats['REB']) || 0) + (parseFloat(stats['AST']) || 0);
-       stats['PRA'] = praAvg;
+       stats['PRA'] = +(praAvg.toFixed(1));
        
        const isHomePlayer = todayMatchups.some(m => m.home === (teamIdToName[teamId] || teamId));
        const logs = playerLogsMap[playerId] || [];
@@ -414,12 +414,13 @@ export async function GET(request) {
 
        const statEvaluations = [];
 
-       ['PTS', 'REB', 'AST', 'STL', 'BLK', '3PM', 'TOV', 'PRA'].forEach(statCat => {
+       ['PTS', 'REB', 'AST', '3PM', 'PRA'].forEach(statCat => {
         if (!isLineLive(liveOdds, playerName, statCat)) {
           return;
         }
 
         const avg = stats[statCat];
+          const totalTeamsCount = Object.keys(rankMaps['PTS'] || {}).length || 12;
           let defensiveRank;
           if (statCat === 'PRA') {
              const ptsRank = rankMaps['PTS']?.[oppName] || 6;
@@ -683,7 +684,7 @@ export async function GET(request) {
                  rank: defensiveRank,
                  defensiveRank: defensiveRank,
                  confidence: confidenceScore,
-                 oppDesc: `Opp Rank: ${defensiveRank}/12${restText}`,
+                 oppDesc: `Opp Rank: ${defensiveRank}/${totalTeamsCount}${restText}`,
                  streakDesc: streakText,
                  spatialDesc: spatialText,
                  memoryDesc: memoryText,

@@ -1,9 +1,16 @@
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Outfit, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+});
+
+const outfit = Outfit({
+  variable: "--font-outfit",
+  subsets: ["latin"],
+  weight: ["400", "700", "800", "900"],
 });
 
 const geistMono = Geist_Mono({
@@ -12,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Ghhost - Professional Sports Analytics",
-  description: "Ghhost is a super analytical app for professional sports, providing users with super detailed insight and predictions.",
+  title: "Ghhost — Predictive Intelligence",
+  description: "Ghhost is a predictive sports intelligence platform delivering data-driven predictions and deep analytics across NBA, WNBA, NFL, and MLB.",
 };
 
 import GlobalNav from "@/components/GlobalNav";
@@ -22,7 +29,7 @@ import { Providers } from "@/components/Providers";
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${inter.variable} ${outfit.variable} ${geistMono.variable}`}>
       <body style={{ margin: 0, padding: 0, background: 'var(--bg-dark)' }}>
         <Providers>
           <ProProvider>

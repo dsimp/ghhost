@@ -1,5 +1,6 @@
 "use client";
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { generateNarrative } from '@/engines/shared/narrativeEngine';
 import { Ghost, Sparkles, Lock } from 'lucide-react';
 import { usePro } from '@/context/ProContext';
@@ -92,7 +93,7 @@ export default function ExplainerCard({ children, prediction, sport, forceLock =
              {children}
            </div>
         )}
-        {flipped && (
+        {flipped && typeof document !== 'undefined' && createPortal(
           <div style={{
             position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
             background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
@@ -110,7 +111,8 @@ export default function ExplainerCard({ children, prediction, sport, forceLock =
                 <span onClick={() => setFlipped(false)} style={{ cursor: 'pointer', fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Close</span>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
       </>
     );

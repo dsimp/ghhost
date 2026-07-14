@@ -313,7 +313,7 @@ export async function GET(request) {
        };
        
        const praAvg = (parseFloat(stats['PTS']) || 0) + (parseFloat(stats['REB']) || 0) + (parseFloat(stats['AST']) || 0);
-       stats['PRA'] = praAvg;
+       stats['PRA'] = +(praAvg.toFixed(1));
 
        const isHomePlayer = todayMatchups.some(m => m.home === (teamIdToName[teamId] || teamId));
        const logs = playerLogsMap[playerId] || [];
