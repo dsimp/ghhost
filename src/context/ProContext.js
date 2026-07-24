@@ -1,30 +1,23 @@
 "use client";
 
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useContext } from 'react';
+import { useSession } from 'next-auth/react';
 
 const ProContext = createContext();
 
+/**
+ * ProProvider — derives isPro exclusively from the NextAuth session.
+ * 
+ * The server sets session.user.isPro based on the database User record
+ * (subscription status + proExpiresAt check) in auth.js callbacks.
+ * This cannot be spoofed via localStorage or DevTools.
+ */
 export function ProProvider({ children }) {
-  const [isPro, setIsPro] = useState(false);
-
-  // Load state from localStorage if it exists so it persists across refreshes
-  useEffect(() => {
-    const saved = localStorage.getItem('ghhost_isPro');
-    if (saved !== null) {
-      setIsPro(saved === 'true');
-    }
-  }, []);
-
-  const togglePro = () => {
-    setIsPro(prev => {
-      const next = !prev;
-      localStorage.setItem('ghhost_isPro', next);
-      return next;
-    });
-  };
+  const { data: session } = useSession();
+  const isPro = session?.user?.isPro === true;
 
   return (
-    <ProContext.Provider value={{ isPro, togglePro }}>
+    <ProContext.Provider value={{ isPro }}>
       {children}
     </ProContext.Provider>
   );
