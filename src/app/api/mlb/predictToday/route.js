@@ -140,8 +140,11 @@ export async function GET(request) {
 
   try {
     // 1. Fetch Today's Games with Probable Pitchers
+    // IMPORTANT: Explicitly pass today's date — without it, the MLB API can return
+    // yesterday's schedule when games finish late and the UTC date rolls over.
     const scheduleData = await fetchMLB('schedule', {
       sportId: 1,
+      date: gameDate,
       hydrate: 'probablePitcher,team'
     });
 
@@ -167,8 +170,11 @@ export async function GET(request) {
       playingTeamIds.add(homeTeam.id);
       playingTeamIds.add(awayTeam.id);
       
-      const homeAbbr = homeTeam.abbreviation || homeTeam.name.substring(0, 3).toUpperCase();
-      const awayAbbr = awayTeam.abbreviation || awayTeam.name.substring(0, 3).toUpperCase();
+      let homeAbbr = homeTeam.abbreviation || homeTeam.name.substring(0, 3).toUpperCase();
+      let awayAbbr = awayTeam.abbreviation || awayTeam.name.substring(0, 3).toUpperCase();
+      const ABBR_NORMALIZE = { 'CHW': 'CWS', 'ARI': 'AZ', 'WSH': 'WAS' };
+      homeAbbr = ABBR_NORMALIZE[homeAbbr] || homeAbbr;
+      awayAbbr = ABBR_NORMALIZE[awayAbbr] || awayAbbr;
 
       teamIdToName[homeTeam.id] = homeTeam.name;
       teamIdToName[awayTeam.id] = awayTeam.name;
@@ -205,7 +211,7 @@ export async function GET(request) {
       stats: 'season',
       group: 'hitting',
       playerPool: 'ALL',
-      season: 2026,
+      season: new Date().getFullYear().toString(),
       limit: 200,
       sortStat: 'totalBases' // We care about Total Bases / Hits
     });
@@ -224,11 +230,11 @@ export async function GET(request) {
     const [hittersDeepData, pitchersDeepData] = await Promise.all([
       fetchMLB('people', {
         personIds: activeHitterIds.join(','),
-        hydrate: 'stats(group=[hitting],type=[statSplits,sprayChart,gameLog],sitCodes=[vl,vr],season=2026)'
+        hydrate: `stats(group=[hitting],type=[statSplits,sprayChart,gameLog],sitCodes=[vl,vr],season=${new Date().getFullYear()})`
       }).catch(() => null),
       fetchMLB('people', {
         personIds: activePitcherIds.join(','),
-        hydrate: 'stats(group=[pitching],type=[season,gameLog],season=2026)'
+        hydrate: `stats(group=[pitching],type=[season,gameLog],season=${new Date().getFullYear()})`
       }).catch(() => null)
     ]);
 
@@ -236,7 +242,7 @@ export async function GET(request) {
     const autopsyHistory = await getFullPlayerHistory();
 
     // Phase 3: Fetch the Brain's Learned Adjustments
-    const learnedAdj = await getLearnedAdjustments('MLB');
+    const learnedAdj = (await getLearnedAdjustments('MLB')) || {};
 
     if (!hittersDeepData || !pitchersDeepData) {
        return NextResponse.json({ matchups: [], players: [], message: 'MLB Stats API is temporarily rate-limiting our servers. Please try again later.' });
@@ -335,7 +341,13 @@ export async function GET(request) {
                const displayCat = displayCatMap[statCat];
                if (!isLineLive(liveOdds, playerName, displayCat)) { return; }
                const statMapping = statCat; // gameLog key matches statCat for hitters
-               const splitAvg = parseFloat(relevantSplit[statCat] / relevantSplit.atBats) || 0; // Per AB approximation
+               let splitAvg;
+               if (statCat === 'baseOnBalls') {
+                 const pa = (relevantSplit.atBats || 0) + (relevantSplit.baseOnBalls || 0) + (relevantSplit.hitByPitch || 0) + (relevantSplit.sacFlies || 0);
+                 splitAvg = pa > 0 ? relevantSplit[statCat] / pa : 0;
+               } else {
+                 splitAvg = relevantSplit.atBats > 0 ? relevantSplit[statCat] / relevantSplit.atBats : 0;
+               }
                const seasonTotal = parseInt(relevantSplit[statCat]);
 
               // Rarer stats (HR, SB, BB) use a lower minimum data threshold
@@ -416,12 +428,13 @@ export async function GET(request) {
                   });
 
                  // Advanced Regression Mechanics (The Gambler's Fallacy correction)
-                 if (call.includes('OVER') && overCount >= 8) {
+                 const isRareEvent = ['homeRuns', 'stolenBases'].includes(statCat);
+                 if (!isRareEvent && call.includes('OVER') && overCount >= 8) {
                      confidenceScore -= 20; 
                      call = 'UNDER'; // The engine predicts regression
                      color = '#ef4444';
                      streakText = `👻 Ghhost Prediction: Regression Expected (Reverting after ${overCount} Overs)`;
-                 } else if (call.includes('UNDER') && underCount >= 8) {
+                 } else if (!isRareEvent && call.includes('UNDER') && underCount >= 8) {
                      confidenceScore -= 20;
                      call = 'OVER';
                      color = '#22c55e';
@@ -490,13 +503,16 @@ export async function GET(request) {
               // Phase 4: Weather modifier — applies to H, TB, HR, R, RBI
               const weatherAffectedStats = ['hits', 'totalBases', 'homeRuns', 'runs', 'rbi'];
               const gameWeather = weatherMap[homeTeamAbbr];
+              let weatherText = '';
               if (weatherAffectedStats.includes(statCat)) {
                 const weatherDisplayCat = (statCat === 'homeRuns' || statCat === 'runs' || statCat === 'rbi') ? 'TB' : (statCat === 'hits' ? 'H' : 'TB');
-                const { modifier: weatherMod, text: weatherText } = calcWeatherModifier(gameWeather, weatherDisplayCat);
+                const { modifier: weatherMod, text: wText } = calcWeatherModifier(gameWeather, weatherDisplayCat);
                 baseProjection *= weatherMod;
+                weatherText = wText;
+              } else {
+                const { text: wText } = calcWeatherModifier(gameWeather, displayCat);
+                weatherText = wText;
               }
-              // Always compute weatherText for oppDesc display
-              const { text: weatherText } = calcWeatherModifier(gameWeather, displayCat);
 
               const confidenceScale = 1.0 + ((confidenceScore - 50) / 500);
               let projectedTarget = Math.max(0, +(baseProjection * confidenceScale).toFixed(1));
@@ -577,7 +593,7 @@ export async function GET(request) {
               if (confidenceScore >= 60) {
                  statEvaluations.push({
                     category: displayCat,
-                    avg: baseAvg.toString(),
+                    avg: playerSeasonAvg.toFixed(1).toString(),
                     projectedTarget: projectedTarget,
                     call: call,
                     color: color,

@@ -24,6 +24,7 @@ export const metadata = {
 };
 
 import GlobalNav from "@/components/GlobalNav";
+import GhhostChat from "@/components/GhhostChat";
 import { ProProvider } from "@/context/ProContext";
 import { Providers } from "@/components/Providers";
 
@@ -36,6 +37,7 @@ export default function RootLayout({ children }) {
             <GlobalNav>
               {children}
             </GlobalNav>
+            <GhhostChat />
           </ProProvider>
         </Providers>
       </body>

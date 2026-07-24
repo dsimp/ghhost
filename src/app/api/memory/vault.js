@@ -16,11 +16,6 @@ export async function logPredictionsToVault(sport, players) {
     // Use local date formatted as YYYY-MM-DD
     const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
 
-    // Delete existing pending predictions for today/sport to avoid duplicates on refresh
-    await prisma.predictionLog.deleteMany({
-      where: { dateKey: today, sport: sport, graded: false }
-    });
-
     const ops = [];
     players.forEach(p => {
       p.evaluations.forEach(e => {
@@ -46,7 +41,12 @@ export async function logPredictionsToVault(sport, players) {
     });
 
     if (ops.length > 0) {
-      await prisma.predictionLog.createMany({ data: ops });
+      await prisma.$transaction([
+        prisma.predictionLog.deleteMany({
+          where: { dateKey: today, sport: sport, graded: false }
+        }),
+        prisma.predictionLog.createMany({ data: ops })
+      ]);
     }
   } catch (error) {
     console.error(`Failed to log ${sport} predictions to Database:`, error);
@@ -165,3 +165,106 @@ export async function getScoutingNotes(sport) {
     return {};
   }
 }
+
+/**
+ * Rebuilds the entire PlayerHistory table from scratch using all graded PredictionLogs.
+ * Excludes DNPs (hit = null) so hit rates remain 100% true to actual played games.
+ */
+export async function rebuildPlayerHistoryFromLogs() {
+  try {
+    const gradedLogs = await prisma.predictionLog.findMany({
+      where: { graded: true, hit: { not: null } }
+    });
+
+    const map = {};
+
+    for (const log of gradedLogs) {
+      const pid = String(log.playerId);
+      const cat = log.category;
+
+      if (!map[pid]) map[pid] = {};
+      if (!map[pid][cat]) {
+        map[pid][cat] = {
+          total: 0, hits: 0, misses: 0,
+          overTotal: 0, overHits: 0, overMisses: 0,
+          underTotal: 0, underHits: 0, underMisses: 0,
+          homeHits: 0, homeMisses: 0, awayHits: 0, awayMisses: 0,
+          opponentSplits: {}, pitcherHandednessSplits: {}, contextWarnings: []
+        };
+      }
+
+      const h = map[pid][cat];
+      h.total++;
+
+      const isHit = log.hit === true;
+      const isOver = log.call === 'OVER';
+      const isHome = log.isHome === true;
+      const opp = log.opponentAbbr || 'UNK';
+      const pHand = log.pitcherHandedness;
+
+      if (!h.opponentSplits[opp]) h.opponentSplits[opp] = { hits: 0, misses: 0 };
+      if (pHand && !h.pitcherHandednessSplits[pHand]) {
+        h.pitcherHandednessSplits[pHand] = { hits: 0, misses: 0 };
+      }
+
+      if (isOver) h.overTotal++;
+      else h.underTotal++;
+
+      if (isHit) {
+        h.hits++;
+        if (isOver) h.overHits++; else h.underHits++;
+        if (isHome) h.homeHits++; else h.awayHits++;
+        h.opponentSplits[opp].hits++;
+        if (pHand && h.pitcherHandednessSplits[pHand]) h.pitcherHandednessSplits[pHand].hits++;
+      } else {
+        h.misses++;
+        if (isOver) h.overMisses++; else h.underMisses++;
+        if (isHome) h.homeMisses++; else h.awayMisses++;
+        h.opponentSplits[opp].misses++;
+        if (pHand && h.pitcherHandednessSplits[pHand]) h.pitcherHandednessSplits[pHand].misses++;
+        if (log.contextNote && !log.contextNote.includes('Pure Miss')) {
+          if (!h.contextWarnings.includes(log.contextNote)) h.contextWarnings.push(log.contextNote);
+        }
+      }
+    }
+
+    let updatedCount = 0;
+    for (const [playerId, categories] of Object.entries(map)) {
+      for (const [category, stats] of Object.entries(categories)) {
+        const hitRate = stats.total > 0 ? stats.hits / stats.total : 0;
+        const overHitRate = stats.overTotal > 0 ? stats.overHits / stats.overTotal : 0;
+        const underHitRate = stats.underTotal > 0 ? stats.underHits / stats.underTotal : 0;
+
+        await prisma.playerHistory.upsert({
+          where: { playerId_category: { playerId, category } },
+          create: {
+            playerId, category,
+            total: stats.total, hits: stats.hits, misses: stats.misses, hitRate,
+            overTotal: stats.overTotal, overHits: stats.overHits, overMisses: stats.overMisses, overHitRate,
+            underTotal: stats.underTotal, underHits: stats.underHits, underMisses: stats.underMisses, underHitRate,
+            homeHits: stats.homeHits, homeMisses: stats.homeMisses,
+            awayHits: stats.awayHits, awayMisses: stats.awayMisses,
+            opponentSplits: stats.opponentSplits, pitcherHandednessSplits: stats.pitcherHandednessSplits,
+            contextWarnings: stats.contextWarnings
+          },
+          update: {
+            total: stats.total, hits: stats.hits, misses: stats.misses, hitRate,
+            overTotal: stats.overTotal, overHits: stats.overHits, overMisses: stats.overMisses, overHitRate,
+            underTotal: stats.underTotal, underHits: stats.underHits, underMisses: stats.underMisses, underHitRate,
+            homeHits: stats.homeHits, homeMisses: stats.homeMisses,
+            awayHits: stats.awayHits, awayMisses: stats.awayMisses,
+            opponentSplits: stats.opponentSplits, pitcherHandednessSplits: stats.pitcherHandednessSplits,
+            contextWarnings: stats.contextWarnings
+          }
+        });
+        updatedCount++;
+      }
+    }
+
+    return { success: true, updatedCount };
+  } catch (error) {
+    console.error('Failed to rebuild player history:', error);
+    return { success: false, error: error.message };
+  }
+}
+

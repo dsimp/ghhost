@@ -350,7 +350,8 @@ export async function GET(request) {
           });
         });
         
-        if (statEvaluations.length > 0) {
+        const highConfidenceEvals = statEvaluations.filter(e => e.confidence >= 55);
+        if (highConfidenceEvals.length > 0) {
           playerPredictions.push({
             player: player.name,
             playerId: player.id,
@@ -360,7 +361,7 @@ export async function GET(request) {
             opponentAbbr: oppAbbr,
             opponentId: oppAbbr,
             isHome,
-            evaluations: statEvaluations
+            evaluations: highConfidenceEvals
           });
         }
       });

@@ -57,7 +57,7 @@ function rankTeams(teamsData, statIndex, descending = false) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const season = searchParams.get('season') || '2026';
+  const season = searchParams.get('season') || new Date().getFullYear().toString();
 
   const liveOdds = await fetchAvailableProps('WNBA');
   
@@ -295,8 +295,8 @@ export async function GET(request) {
       "Restricted Area", "In The Paint (Non-RA)", "Mid-Range", 
       "Left Corner 3", "Right Corner 3", "Above the Break 3", "Backcourt"
     ];
-    if (playerShotData && playerShotData.resultSets && playerShotData.resultSets.rowSet) {
-        const pRows = playerShotData.resultSets.rowSet;
+    if (playerShotData && playerShotData.resultSets && playerShotData.resultSets[0]?.rowSet) {
+        const pRows = playerShotData.resultSets[0].rowSet;
         pRows.forEach(r => {
             const pId = String(r[0]); 
             if (!playerLogsMap[pId]) return; 
@@ -538,7 +538,6 @@ export async function GET(request) {
            }
            
            streakText = streakText.trim();
-           if (confidenceScore < 60) call = call.replace('STRONG ', '');
 
            if (confidenceScore > 99) confidenceScore = 99;
            if (confidenceScore < 1) confidenceScore = 1;
@@ -675,27 +674,30 @@ export async function GET(request) {
              }
           }
 
-             statEvaluations.push({
-                 category: statCat,
-                 avg: stats[statCat],
-                 projectedTarget: projectedTarget,
-                 call: call,
-                 color: color,
-                 rank: defensiveRank,
-                 defensiveRank: defensiveRank,
-                 confidence: confidenceScore,
-                 oppDesc: `Opp Rank: ${defensiveRank}/${totalTeamsCount}${restText}`,
-                 streakDesc: streakText,
-                 spatialDesc: spatialText,
-                 memoryDesc: memoryText,
-                 historicalAccuracy: numAccuracy,
-                 totalGames: pHistory ? pHistory.total : 0,
-                 h2hAvg: h2hAvg,
-                 splitAvg: splitAvgVal,
-                 last10Avg: last10AvgVal,
-                 restDays: restDays,
-                 travelText: travelText
-              });
+             if (confidenceScore < 60) call = call.replace('STRONG ', '');
+             if (confidenceScore >= 55) {
+                 statEvaluations.push({
+                     category: statCat,
+                     avg: stats[statCat],
+                     projectedTarget: projectedTarget,
+                     call: call,
+                     color: color,
+                     rank: defensiveRank,
+                     defensiveRank: defensiveRank,
+                     confidence: confidenceScore,
+                     oppDesc: `Opp Rank: ${defensiveRank}/${totalTeamsCount}${restText}`,
+                     streakDesc: streakText,
+                     spatialDesc: spatialText,
+                     memoryDesc: memoryText,
+                     historicalAccuracy: numAccuracy,
+                     totalGames: pHistory ? pHistory.total : 0,
+                     h2hAvg: h2hAvg,
+                     splitAvg: splitAvgVal,
+                     last10Avg: last10AvgVal,
+                     restDays: restDays,
+                     travelText: travelText
+                  });
+             }
        });
 
        playerPredictions.push({

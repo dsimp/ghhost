@@ -37,6 +37,7 @@ export default function MLBHome() {
   const [riskResults, setRiskResults] = useState({});
 
   const [flippedCards, setFlippedCards] = useState({});
+  const [flippedFullCards, setFlippedFullCards] = useState({});
   const [h2hData, setH2hData] = useState({});
   const [predictorTrends, setPredictorTrends] = useState({});
   

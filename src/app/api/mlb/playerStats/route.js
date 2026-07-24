@@ -13,7 +13,7 @@ export async function GET(request) {
     const data = await fetchMLB(`people/${playerId}/stats`, {
       stats: 'gameLog',
       group: 'hitting,pitching',
-      season: 2026
+      season: new Date().getFullYear().toString()
     });
 
     if (!data || !data.stats) {

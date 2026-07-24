@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { fetchNBA } from '../../nba/fetchNBA';
 import { fetchMLB } from '../../mlb/fetchMLB';
 import { PrismaClient } from '@prisma/client';
+import { rebuildPlayerHistoryFromLogs } from '@/app/api/memory/vault';
 
 const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient();
@@ -67,13 +68,15 @@ export async function GET(request) {
     const allHistory = await prisma.playerHistory.findMany();
     for (const h of allHistory) {
        if (!vault.playerHistory[h.playerId]) vault.playerHistory[h.playerId] = {};
-       vault.playerHistory[h.playerId][h.category] = {
-          total: h.total, hits: h.hits, misses: h.misses, contextWarnings: h.contextWarnings || [],
-          homeHits: h.homeHits || 0, homeMisses: h.homeMisses || 0,
-          awayHits: h.awayHits || 0, awayMisses: h.awayMisses || 0,
-          opponentSplits: h.opponentSplits || {},
-          pitcherHandednessSplits: h.pitcherHandednessSplits || {}
-       };
+        vault.playerHistory[h.playerId][h.category] = {
+           total: h.total || 0, hits: h.hits || 0, misses: h.misses || 0, contextWarnings: h.contextWarnings || [],
+           overTotal: h.overTotal || 0, overHits: h.overHits || 0, overMisses: h.overMisses || 0,
+           underTotal: h.underTotal || 0, underHits: h.underHits || 0, underMisses: h.underMisses || 0,
+           homeHits: h.homeHits || 0, homeMisses: h.homeMisses || 0,
+           awayHits: h.awayHits || 0, awayMisses: h.awayMisses || 0,
+           opponentSplits: h.opponentSplits || {},
+           pitcherHandednessSplits: h.pitcherHandednessSplits || {}
+        };
     }
 
     /**
@@ -150,14 +153,19 @@ export async function GET(request) {
       
       // ═══════════════════════ GRADE NBA ═══════════════════════
       if (sportsData.NBA && sportsData.NBA.length > 0) {
-        const result = await gradeBasketball(sportsData.NBA, dateKey, '00', '2025-26', updateHistory);
+        const currentYear = new Date().getFullYear();
+        const currentMonth = new Date().getMonth();
+        const nbaSeason = currentMonth >= 9 
+          ? `${currentYear}-${(currentYear + 1).toString().slice(-2)}` 
+          : `${currentYear - 1}-${currentYear.toString().slice(-2)}`;
+        const result = await gradeBasketball(sportsData.NBA, dateKey, '00', nbaSeason, updateHistory);
         gradedCount += result.graded;
         dnpCount += result.dnp;
       }
 
       // ═══════════════════════ GRADE WNBA ═══════════════════════
       if (sportsData.WNBA && sportsData.WNBA.length > 0) {
-        const result = await gradeBasketball(sportsData.WNBA, dateKey, '10', '2026', updateHistory);
+        const result = await gradeBasketball(sportsData.WNBA, dateKey, '10', new Date().getFullYear().toString(), updateHistory);
         gradedCount += result.graded;
         dnpCount += result.dnp;
       }
@@ -177,7 +185,7 @@ export async function GET(request) {
              
              const peopleData = await fetchMLB('people', {
                 personIds: playerPrediction.playerId,
-                hydrate: `stats(group=[${statGroup}],type=[gameLog],season=2026)`
+                hydrate: `stats(group=[${statGroup}],type=[gameLog],season=${new Date().getFullYear()})`
              });
 
              const player = peopleData?.people?.[0];
@@ -206,6 +214,17 @@ export async function GET(request) {
                    let isHit = false;
                    if (evaluation.call === 'OVER') isHit = actualStat > targetLine;
                    if (evaluation.call === 'UNDER') isHit = actualStat < targetLine;
+
+                   // Push detection: exact match on target line is neither hit nor miss
+                   const isPush = (actualStat === targetLine);
+                   if (isPush) {
+                     await prisma.predictionLog.update({
+                       where: { id: evaluation._id },
+                       data: { graded: true, hit: null, actualResult: actualStat, contextNote: 'Push — Landed exactly on line' }
+                     });
+                     dnpCount++;
+                     continue; // Skip to next evaluation
+                   }
 
                    evaluation.contextNote = null;
                    if (!isHit) {
@@ -278,16 +297,41 @@ export async function GET(request) {
                    let actualStat = 0;
                    const cat = evaluation.category;
                    
-                   // Try to extract from ESPN gamelog format
-                   if (typeof actualStats === 'object') {
-                      // ESPN uses different structures, try common patterns
-                      actualStat = parseFloat(actualStats[cat]) || 0;
+                   if (Array.isArray(actualStats)) {
+                     // ESPN categories format: [{name: 'passing', stats: [...]}, ...]
+                     for (const category of actualStats) {
+                       if (category.stats) {
+                         // stats can be an array of {name, value} or flat values
+                         if (Array.isArray(category.stats)) {
+                           const found = category.stats.find(s => s.name === cat || s.abbreviation === cat);
+                           if (found) { actualStat = parseFloat(found.value || found.displayValue) || 0; break; }
+                         }
+                       }
+                       // Also check if it has direct stat keys
+                       if (category[cat] !== undefined) {
+                         actualStat = parseFloat(category[cat]) || 0;
+                         break;
+                       }
+                     }
+                   } else if (typeof actualStats === 'object' && actualStats !== null) {
+                     actualStat = parseFloat(actualStats[cat]) || 0;
                    }
                    
                    const targetLine = parseFloat(evaluation.target);
                    let isHit = false;
                    if (evaluation.call === 'OVER') isHit = actualStat > targetLine;
                    if (evaluation.call === 'UNDER') isHit = actualStat < targetLine;
+
+                   // Push detection: exact match on target line is neither hit nor miss
+                   const isPush = (actualStat === targetLine);
+                   if (isPush) {
+                     await prisma.predictionLog.update({
+                       where: { id: evaluation._id },
+                       data: { graded: true, hit: null, actualResult: actualStat, contextNote: 'Push — Landed exactly on line' }
+                     });
+                     dnpCount++;
+                     continue; // Skip to next evaluation
+                   }
 
                    evaluation.contextNote = isHit ? null : "Pure Miss";
                    updateHistory(playerPrediction.playerId, evaluation, isHit);
@@ -313,8 +357,8 @@ export async function GET(request) {
     for (const [playerId, categories] of Object.entries(vault.playerHistory)) {
        for (const [category, stats] of Object.entries(categories)) {
           const hitRate = stats.total > 0 ? (stats.hits / stats.total) : 0;
-          const overHitRate = stats.overTotal > 0 ? (stats.overHits / stats.overTotal) : 0;
-          const underHitRate = stats.underTotal > 0 ? (stats.underHits / stats.underTotal) : 0;
+          const overHitRate = (stats.overTotal || 0) > 0 ? (stats.overHits / stats.overTotal) : 0;
+          const underHitRate = (stats.underTotal || 0) > 0 ? (stats.underHits / stats.underTotal) : 0;
 
           await prisma.playerHistory.upsert({
              where: { playerId_category: { playerId, category } },
@@ -333,6 +377,9 @@ export async function GET(request) {
           });
        }
     }
+
+    // Final full rebuild sync to ensure zero drift
+    await rebuildPlayerHistoryFromLogs();
 
     return NextResponse.json({ 
        message: `Autopsy Complete. Graded ${gradedCount} predictions. ${dnpCount} marked as DNP (excluded from hit rate).`,
@@ -399,6 +446,17 @@ async function gradeBasketball(playerPredictions, dateKey, leagueId, season, upd
              let isHit = false;
              if (evaluation.call === 'OVER') isHit = actualStat > targetLine;
              if (evaluation.call === 'UNDER') isHit = actualStat < targetLine;
+
+             // Push detection: exact match on target line is neither hit nor miss
+             const isPush = (actualStat === targetLine);
+             if (isPush) {
+               await prisma.predictionLog.update({
+                 where: { id: evaluation._id },
+                 data: { graded: true, hit: null, actualResult: actualStat, contextNote: 'Push — Landed exactly on line' }
+               });
+               dnpCount++;
+               continue; // Skip to next evaluation
+             }
 
              evaluation.contextNote = null;
              if (!isHit) {

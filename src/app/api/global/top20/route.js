@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { PrismaClient } from '@prisma/client';
+import { getFullPlayerHistory } from '@/app/api/memory/vault';
 
 const globalForPrisma = global;
 const prisma = globalForPrisma.prisma || new PrismaClient();
@@ -18,7 +19,7 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
  */
 export async function GET(request) {
    const { searchParams } = new URL(request.url);
-   const dateStr = searchParams.get('date') || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+   const dateStr = searchParams.get('date') || new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }); // Trigger recompile
 
    try {
       // Get today's cached predictions from ALL sports
@@ -26,39 +27,8 @@ export async function GET(request) {
          where: { gameDate: dateStr }
       });
 
-      // Get ALL graded prediction logs to compute accurate hit rates
-      // Only count predictions where hit is true or false (exclude DNPs where hit=null)
-      const gradedLogs = await prisma.predictionLog.findMany({
-         where: {
-            graded: true,
-            hit: { not: null } // Exclude DNPs entirely
-         },
-         select: {
-            playerId: true,
-            category: true,
-            hit: true,
-            sport: true
-         }
-      });
-
-      // Build hit rate lookup: playerId -> category -> { total, hits, hitRate }
-      const historyMap = {};
-      for (const log of gradedLogs) {
-         if (!historyMap[log.playerId]) historyMap[log.playerId] = {};
-         if (!historyMap[log.playerId][log.category]) {
-            historyMap[log.playerId][log.category] = { total: 0, hits: 0 };
-         }
-         historyMap[log.playerId][log.category].total++;
-         if (log.hit) historyMap[log.playerId][log.category].hits++;
-      }
-
-      // Calculate hit rates
-      for (const pid of Object.keys(historyMap)) {
-         for (const cat of Object.keys(historyMap[pid])) {
-            const entry = historyMap[pid][cat];
-            entry.hitRate = entry.total > 0 ? entry.hits / entry.total : 0;
-         }
-      }
+      // Get unified PlayerHistory from vault (100% sync with all sport engines)
+      const historyMap = await getFullPlayerHistory();
 
       let candidates = [];
       let unfilteredWarning = false;

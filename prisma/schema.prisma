@@ -85,6 +85,8 @@ model PredictionLog {
 
   @@index([dateKey])
   @@index([playerId])
+  @@index([graded, optimized])
+  @@index([sport, dateKey, graded])
 }
 
 model PlayerHistory {
@@ -123,6 +125,7 @@ model PlayerHistory {
   updatedAt      DateTime @updatedAt
 
   @@unique([playerId, category])
+  @@index([playerId])
 }
 
 model DailyCache {
@@ -133,6 +136,7 @@ model DailyCache {
   payload   Json
 
   @@unique([sport, gameDate])
+  @@index([gameDate])
 }
 
 // Phase 3: Self-Correcting Feedback Loop — Learned Adjustments
@@ -147,6 +151,7 @@ model LearnedAdjustment {
   createdAt   DateTime @default(now())
 
   @@unique([sport, bucket])
+  @@index([sport, sampleSize])
 }
 
 // Phase 8: Dynamic Scouting Notebook (Data Lake)
@@ -163,4 +168,5 @@ model ScoutingNote {
   createdAt   DateTime @default(now())
 
   @@unique([playerId, contextHash, category])
+  @@index([sport])
 }

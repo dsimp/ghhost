@@ -1030,12 +1030,46 @@ export default function WNBADashboard() {
 
                     </div>
 
-                    {/* DUMMY BACK OF CARD TO MAINTAIN FLIP ILLUSION */}
+                    {/* BACK OF CARD: TREND GRAPH */}
                     <div className="glass-panel" style={{
                        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
                        backfaceVisibility: 'hidden', transform: 'rotateY(180deg)',
-                       background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent)', opacity: 0.5
-                    }}></div>
+                       display: 'flex', flexDirection: 'column',
+                       background: 'rgba(20, 20, 25, 0.95)', border: '1px solid var(--accent)'
+                    }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                          <h3 style={{fontSize: '1.1rem'}}>{p.player} Last 10</h3>
+                          <button onClick={() => handleFullCardFlip(p.playerId)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem'}}>✕</button>
+                       </div>
+                       {/* Stat Filter Dropdown */}
+                       {trendData?.logs && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>Stat:</span>
+                             <select
+                                className="dropdown-glass"
+                                value={trendData.stat}
+                                onChange={(e) => setPlayerLogsData(prev => ({ ...prev, [p.playerId]: { ...prev[p.playerId], stat: e.target.value } }))}
+                                style={{
+                                   background: 'rgba(255,255,255,0.06)', color: 'white', border: '1px solid var(--panel-border)',
+                                   borderRadius: '8px', padding: '5px 10px', fontSize: '0.8rem', cursor: 'pointer', outline: 'none'
+                                }}
+                             >
+                                {['PTS','REB','AST','STL','BLK','3PM','PRA'].map(s => (
+                                   <option key={s} value={s} style={{ background: '#1a1a2e', color: 'white' }}>{s}</option>
+                                ))}
+                             </select>
+                          </div>
+                       )}
+                       <div style={{ flex: 1, position: 'relative' }}>
+                          {trendData?.loading ? (
+                             <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)' }}>Extracting Game Logs...</div>
+                          ) : trendData?.error ? (
+                             <div style={{ color: '#ef4444', textAlign: 'center', marginTop: '40px' }}>Failed to load trend data.</div>
+                          ) : (
+                             <TrendGraph logs={trendData?.logs || []} statKey={trendData?.stat === '3PM' ? 'FG3M' : (trendData?.stat || 'PTS')} />
+                          )}
+                       </div>
+                    </div>
                   </div>
                 </div>
                );

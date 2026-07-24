@@ -10,13 +10,17 @@ export async function GET(request) {
         date: "2024-02-11",
         opponent: "SF",
         isHome: false,
-        pts: 333, // pass yds
-        reb: 66,  // rush yds
-        ast: 2,   // pass TDs
-        stl: 1,   // INTs
-        blk: 0,
-        fg3m: 0,
-        tov: 1
+        passYds: 333,
+        rushYds: 66,
+        passTDs: 2,
+        interceptions: 1,
+        rushTDs: 0,
+        sacks: 0,
+        tackles: 0,
+        recYds: 0,
+        recTDs: 0,
+        receptions: 0,
+        completions: 34
       }
     ]
   });

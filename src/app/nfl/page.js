@@ -175,22 +175,21 @@ export default function NFLDashboard() {
       const lastGame = stats.gameLogs.length > 0 ? stats.gameLogs[0] : null;
       const calcAvg = (arr, stat) => arr.length > 0 ? (arr.reduce((acc, l) => acc + l[stat], 0) / arr.length).toFixed(1) : 'N/A';
       
-      const avgs = {
-        pts: calcAvg(h2hLogs, 'pts'),
-        reb: calcAvg(h2hLogs, 'reb'),
-        ast: calcAvg(h2hLogs, 'ast'),
-        stl: calcAvg(h2hLogs, 'stl'),
-        blk: calcAvg(h2hLogs, 'blk'),
-        fg3m: calcAvg(h2hLogs, 'fg3m'),
-        games: h2hLogs.length,
-        lastGamePts: lastGame ? lastGame.pts : '-',
-        lastGameReb: lastGame ? lastGame.reb : '-',
-        lastGameAst: lastGame ? lastGame.ast : '-',
-        lastGameStl: lastGame ? lastGame.stl : '-',
-        lastGameBlk: lastGame ? lastGame.blk : '-',
-        lastGameFg3m: lastGame ? lastGame.fg3m : '-',
-        lastGameOpp: lastGame ? lastGame.opponent : '-'
-      };
+      const categories = ['pass yds', 'rush yds', 'rec yds', 'pass tds', 'rush tds', 'rec tds', 'comp', 'rec', 'int', 'sacks', 'tackles'];
+      
+      const avgs = { games: h2hLogs.length, lastGameOpp: lastGame ? lastGame.opponent : '-' };
+      categories.forEach(cat => {
+         let logKey = cat.split(' ').map((word, i) => i === 0 ? word : word.charAt(0).toUpperCase() + word.slice(1)).join('');
+         if (logKey === 'int') logKey = 'interceptions';
+         if (logKey === 'rec') logKey = 'receptions';
+         if (logKey === 'comp') logKey = 'completions';
+         if (logKey.endsWith('Tds')) logKey = logKey.replace('Tds', 'TDs');
+         
+         avgs[cat] = calcAvg(h2hLogs, logKey);
+         
+         const lastGameKey = `lastGame${cat.charAt(0).toUpperCase() + cat.slice(1)}`;
+         avgs[lastGameKey] = lastGame && lastGame[logKey] !== undefined ? lastGame[logKey] : '-';
+      });
 
       setH2hData(prev => ({...prev, [playerId]: { loading: false, data: avgs }}));
     } catch (e) {
@@ -1022,12 +1021,46 @@ export default function NFLDashboard() {
 
                     </div>
 
-                    {/* DUMMY BACK OF CARD TO MAINTAIN FLIP ILLUSION */}
+                    {/* BACK OF CARD: TREND GRAPH */}
                     <div className="glass-panel" style={{
                        position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
                        backfaceVisibility: 'hidden', transform: 'rotateY(180deg)',
-                       background: 'rgba(0,0,0,0.5)', border: '1px solid var(--accent)', opacity: 0.5
-                    }}></div>
+                       display: 'flex', flexDirection: 'column',
+                       background: 'rgba(20, 20, 25, 0.95)', border: '1px solid var(--accent)'
+                    }}>
+                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                          <h3 style={{fontSize: '1.1rem'}}>{p.player} Last 10</h3>
+                          <button onClick={() => handleFullCardFlip(p.playerId)} style={{background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1.2rem'}}>✕</button>
+                       </div>
+                       {/* Stat Filter Dropdown */}
+                       {trendData?.logs && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 }}>Stat:</span>
+                             <select
+                                className="dropdown-glass"
+                                value={trendData.stat === 'PTS' ? 'PASS YDS' : trendData.stat}
+                                onChange={(e) => setPlayerLogsData(prev => ({ ...prev, [p.playerId]: { ...prev[p.playerId], stat: e.target.value } }))}
+                                style={{
+                                   background: 'rgba(255,255,255,0.06)', color: 'white', border: '1px solid var(--panel-border)',
+                                   borderRadius: '8px', padding: '5px 10px', fontSize: '0.8rem', cursor: 'pointer', outline: 'none'
+                                }}
+                             >
+                                {['PASS YDS','RUSH YDS','REC YDS','PASS TDS','RUSH TDS','REC TDS','COMP','REC','INT','SACKS','TACKLES'].map(s => (
+                                   <option key={s} value={s} style={{ background: '#1a1a2e', color: 'white' }}>{s}</option>
+                                ))}
+                             </select>
+                          </div>
+                       )}
+                       <div style={{ flex: 1, position: 'relative' }}>
+                          {trendData?.loading ? (
+                             <div style={{ position: 'absolute', inset: 0, display: 'flex', justifyContent: 'center', alignItems: 'center', color: 'var(--text-muted)' }}>Extracting Game Logs...</div>
+                          ) : trendData?.error ? (
+                             <div style={{ color: '#ef4444', textAlign: 'center', marginTop: '40px' }}>Failed to load trend data.</div>
+                          ) : (
+                             <TrendGraph logs={trendData?.logs || []} statKey={trendData?.stat === 'PTS' ? 'PASS YDS' : (trendData?.stat || 'PASS YDS')} />
+                          )}
+                       </div>
+                    </div>
                   </div>
                 </div>
                );

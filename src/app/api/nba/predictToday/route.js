@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { fetchAvailableProps, isLineLive, getLiveLine } from '../../../../engines/shared/oddsFetcher';
 import { safeWriteCache } from '../../../../engines/shared/cacheGuard';
-import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments } from '../../memory/vault';
+import { logPredictionsToVault, getFullPlayerHistory, getLearnedAdjustments, getScoutingNotes } from '../../memory/vault';
 import { fetchNBA } from '../fetchNBA';
 import { PrismaClient } from '@prisma/client';
 
@@ -29,7 +29,12 @@ function rankTeams(teamsData, statIndex, descending = false) {
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const season = searchParams.get('season') || '2025-26';
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth(); // 0-indexed
+  const defaultSeason = currentMonth >= 9 
+    ? `${currentYear}-${(currentYear + 1).toString().slice(-2)}` 
+    : `${currentYear - 1}-${currentYear.toString().slice(-2)}`;
+  const season = searchParams.get('season') || defaultSeason;
 
   const liveOdds = await fetchAvailableProps('NBA');
   const gameDate = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
@@ -236,8 +241,8 @@ export async function GET(request) {
       "Restricted Area", "In The Paint (Non-RA)", "Mid-Range", 
       "Left Corner 3", "Right Corner 3", "Above the Break 3", "Backcourt"
     ];
-    if (playerShotData && playerShotData.resultSets && playerShotData.resultSets.rowSet) {
-        const pRows = playerShotData.resultSets.rowSet;
+    if (playerShotData && playerShotData.resultSets && playerShotData.resultSets[0]?.rowSet) {
+        const pRows = playerShotData.resultSets[0].rowSet;
         pRows.forEach(r => {
             const pId = String(r[0]); 
             if (!playerLogsMap[pId]) return; 
@@ -419,27 +424,29 @@ export async function GET(request) {
         }
 
         // ─── OUTPUT ────────────────────────────────────────────
-        statEvaluations.push({
-          category: statCat,
-          avg: stats[statCat],
-          projectedTarget,
-          call,
-          color,
-          rank: matchupResult.defensiveRank,
-          defensiveRank: matchupResult.defensiveRank,
-          confidence: confidenceScore,
-          oppDesc: `Opp Rank: ${matchupResult.defensiveRank}/30${formResult.restText}${matchupResult.travelText}`,
-          streakDesc: formResult.streakText,
-          spatialDesc: spatialResult.spatialText,
-          memoryDesc: memoryResult.memoryText,
-          historicalAccuracy: memoryResult.numAccuracy,
-          totalGames: memoryResult.totalGames,
-          h2hAvg: formResult.h2hAvg,
-          splitAvg: formResult.splitAvg,
-          last10Avg: formResult.last10Avg,
-          restDays: formResult.restDays,
-          travelText: matchupResult.travelText
-        });
+        if (confidenceScore >= 55) {
+          statEvaluations.push({
+            category: statCat,
+            avg: stats[statCat],
+            projectedTarget,
+            call,
+            color,
+            rank: matchupResult.defensiveRank,
+            defensiveRank: matchupResult.defensiveRank,
+            confidence: confidenceScore,
+            oppDesc: `Opp Rank: ${matchupResult.defensiveRank}/30${formResult.restText}${matchupResult.travelText}`,
+            streakDesc: formResult.streakText,
+            spatialDesc: spatialResult.spatialText,
+            memoryDesc: memoryResult.memoryText,
+            historicalAccuracy: memoryResult.numAccuracy,
+            totalGames: memoryResult.totalGames,
+            h2hAvg: formResult.h2hAvg,
+            splitAvg: formResult.splitAvg,
+            last10Avg: formResult.last10Avg,
+            restDays: formResult.restDays,
+            travelText: matchupResult.travelText
+          });
+        }
       });
 
       playerPredictions.push({
