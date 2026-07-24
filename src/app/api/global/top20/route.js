@@ -64,6 +64,7 @@ export async function GET(request) {
 
                   candidates.push({
                      ...ev,
+                     playerId: playerId,
                      player: p.player,
                      team: p.team,
                      opponent: p.opponentAbbr || p.opponent,

@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { usePro } from '@/context/ProContext';
 import TransparencyWindow from '@/components/TransparencyWindow';
 import ExplainerCard from '@/components/ExplainerCard';
+import PlayerAuditModal from '@/components/PlayerAuditModal';
 import GhostLogo from '@/components/GhostLogo';
-import { Ghost, TrendingUp, TrendingDown, Lock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Ghost, TrendingUp, TrendingDown, Lock, ChevronDown, ChevronUp, BarChart3 } from 'lucide-react';
 
 export default function Home() {
   const [loading, setLoading] = useState(true);
@@ -15,6 +16,7 @@ export default function Home() {
   const [showHistory, setShowHistory] = useState(false);
   const [expandedOvers, setExpandedOvers] = useState(false);
   const [expandedUnders, setExpandedUnders] = useState(false);
+  const [auditPlayer, setAuditPlayer] = useState(null);
   const { isPro } = usePro();
 
   const sportColor = (sport) => {
@@ -96,9 +98,32 @@ export default function Home() {
               </div>
             </div>
           </div>
-          <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '10px' }}>
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              setAuditPlayer({
+                playerId: entry.playerId || entry.id,
+                player: entry.player,
+                category: entry.category,
+                sport: entry.sport
+              });
+            }}
+            style={{ 
+              textAlign: 'right', 
+              flexShrink: 0, 
+              marginLeft: '10px',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              borderRadius: '6px',
+              transition: '0.2s',
+            }}
+            className="audit-trigger-btn"
+            title="Click to view full mathematical audit trail"
+          >
             <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 900, color: textColor }}>{entry.accuracy}%</div>
-            <div style={{ fontSize: '0.55rem', color: 'var(--text-ghost)', letterSpacing: '0.04em' }}>{entry.totalGames} plays</div>
+            <div style={{ fontSize: '0.55rem', color: 'var(--text-ghost)', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: '3px', justifyContent: 'flex-end' }}>
+              {entry.totalGames} plays <BarChart3 size={10} color={textColor} />
+            </div>
           </div>
         </div>
       </ExplainerCard>
@@ -359,6 +384,14 @@ export default function Home() {
             </div>
          )}
       </div>
+
+      {/* ═══ ENGINE AUDIT MODAL ═══ */}
+      {auditPlayer && (
+        <PlayerAuditModal 
+          player={auditPlayer} 
+          onClose={() => setAuditPlayer(null)} 
+        />
+      )}
     </div>
   );
 }

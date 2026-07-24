@@ -5,8 +5,9 @@ import FieldMap from '@/components/FieldMap';
 import TrendGraph from '@/components/TrendGraph';
 import StatLegend from '@/components/StatLegend';
 import ExplainerCard from '@/components/ExplainerCard';
+import PlayerAuditModal from '@/components/PlayerAuditModal';
 import GhostLogo from '@/components/GhostLogo';
-import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Search, Navigation, Lock, Ghost, TrendingUp, TrendingDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ShieldAlert, Crosshair, Target, Zap, Activity, AlertTriangle, Search, Navigation, Lock, Ghost, TrendingUp, TrendingDown, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 
 export default function MLBHome() {
@@ -40,6 +41,7 @@ export default function MLBHome() {
   const [flippedFullCards, setFlippedFullCards] = useState({});
   const [h2hData, setH2hData] = useState({});
   const [predictorTrends, setPredictorTrends] = useState({});
+  const [auditPlayer, setAuditPlayer] = useState(null);
   
   const [selectedGameFilter, setSelectedGameFilter] = useState('');
   const [selectedPlayerFilter, setSelectedPlayerFilter] = useState('');
@@ -738,9 +740,23 @@ export default function MLBHome() {
                                     </div>
                                   </div>
                                 </div>
-                                <div style={{ textAlign: 'right' }}>
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAuditPlayer({
+                                      playerId: gb.playerId || gb.id,
+                                      player: gb.player,
+                                      category: gb.category,
+                                      sport: 'MLB'
+                                    });
+                                  }}
+                                  style={{ textAlign: 'right', cursor: 'pointer', padding: '2px 6px', borderRadius: '6px', transition: '0.2s' }}
+                                  title="Click to view full mathematical audit trail"
+                                >
                                   <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#4ade80' }}>{gb.accuracy}%</div>
-                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
+                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '3px', justifyContent: 'flex-end' }}>
+                                    {gb.totalGames} preds <BarChart3 size={10} color="#4ade80" />
+                                  </div>
                                 </div>
                               </div>
                             </ExplainerCard>
@@ -788,9 +804,23 @@ export default function MLBHome() {
                                     </div>
                                   </div>
                                 </div>
-                                <div style={{ textAlign: 'right' }}>
+                                <div 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAuditPlayer({
+                                      playerId: gb.playerId || gb.id,
+                                      player: gb.player,
+                                      category: gb.category,
+                                      sport: 'MLB'
+                                    });
+                                  }}
+                                  style={{ textAlign: 'right', cursor: 'pointer', padding: '2px 6px', borderRadius: '6px', transition: '0.2s' }}
+                                  title="Click to view full mathematical audit trail"
+                                >
                                   <div style={{ fontSize: '1.1rem', fontWeight: 900, color: '#f87171' }}>{gb.accuracy}%</div>
-                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)' }}>{gb.totalGames} preds</div>
+                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '3px', justifyContent: 'flex-end' }}>
+                                    {gb.totalGames} preds <BarChart3 size={10} color="#f87171" />
+                                  </div>
                                 </div>
                               </div>
                             </ExplainerCard>
@@ -905,35 +935,57 @@ export default function MLBHome() {
                                    </button>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                                   {visibleEvaluations.map(evalData => (
-                                      <div key={evalData.category} style={{
-                                            background: 'rgba(255,255,255,0.03)', padding: '10px', borderRadius: '8px', 
-                                            border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column'
-                                         }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 }}>{evalData.category}</span>
-                                                  <ExplainerCard 
-                                                     overlayMode={true}
-                                                     triggerType="icon"
-                                                     sport="MLB"
-                                                     prediction={{
-                                                        ...evalData, player: pred.player, team: pred.team, opponent: pred.opponent,
-                                                        accuracy: (evalData.historicalAccuracy * 100).toFixed(0),
-                                                        score: (evalData.historicalAccuracy) * Math.log2((evalData.totalGames || 0) + 1)
-                                                     }}
-                                                  />
-                                               </div>
-                                               <span style={{ fontSize: '0.7rem', color: evalData.color, fontWeight: 800, padding: '2px 6px', background: `${evalData.color}20`, borderRadius: '4px' }}>
-                                                  {evalData.call}
-                                               </span>
-                                            </div>
-                                            <div style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '2px' }}>{evalData.avg}</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{evalData.oppDesc.replace('Matchup: ', '')}</div>
-                                         </div>
-                                   ))}
-                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+                                    {visibleEvaluations.map(evalData => {
+                                       const catNameMap = { H: 'Hits', TB: 'Total Bases', R: 'Runs', RBI: 'RBIs', HR: 'Home Runs', SB: 'Stolen Bases', BB: 'Walks', K: 'Strikeouts', ER: 'Earned Runs', HA: 'Hits Allowed', IP: 'Innings Pitched' };
+                                       const fullCatName = catNameMap[evalData.category] || evalData.category;
+
+                                       return (
+                                          <div key={evalData.category} style={{
+                                                background: 'rgba(255,255,255,0.03)', padding: '10px 12px', borderRadius: '10px', 
+                                                border: '1px solid var(--panel-border)', display: 'flex', flexDirection: 'column', gap: '4px'
+                                             }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                      <span style={{ color: 'var(--text-main)', fontSize: '0.82rem', fontWeight: 800 }}>{evalData.category}</span>
+                                                      <span style={{ color: 'var(--text-ghost)', fontSize: '0.65rem' }}>({fullCatName})</span>
+                                                      <ExplainerCard 
+                                                         overlayMode={true}
+                                                         triggerType="icon"
+                                                         sport="MLB"
+                                                         prediction={{
+                                                            ...evalData, player: pred.player, team: pred.team, opponent: pred.opponent,
+                                                            accuracy: evalData.historicalAccuracy ? (evalData.historicalAccuracy * 100).toFixed(0) : '0',
+                                                            score: (evalData.historicalAccuracy || 0.5) * Math.log2((evalData.totalGames || 0) + 1)
+                                                         }}
+                                                      />
+                                                   </div>
+                                                   <span style={{ fontSize: '0.65rem', color: evalData.color, fontWeight: 800, padding: '2px 7px', background: `${evalData.color}18`, border: `1px solid ${evalData.color}35`, borderRadius: '4px' }}>
+                                                      {evalData.call}
+                                                   </span>
+                                                </div>
+
+                                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: '2px' }}>
+                                                   <div>
+                                                      <span style={{ fontSize: '1.25rem', fontWeight: 900, color: 'white' }}>{evalData.avg}</span>
+                                                      <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginLeft: '4px' }}>Avg/G</span>
+                                                   </div>
+
+                                                   {evalData.projectedTarget !== undefined && (
+                                                      <div style={{ textAlign: 'right' }}>
+                                                         <span className="mono" style={{ fontSize: '0.95rem', fontWeight: 800, color: '#00d4aa' }}>{evalData.projectedTarget}</span>
+                                                         <span style={{ fontSize: '0.62rem', color: 'var(--text-ghost)', display: 'block' }}>Target Line</span>
+                                                      </div>
+                                                   )}
+                                                </div>
+
+                                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px', lineHeight: '1.3' }}>
+                                                   {evalData.oppDesc ? evalData.oppDesc.replace('Matchup: ', '') : ''}
+                                                </div>
+                                             </div>
+                                       );
+                                    })}
+                                 </div>
 
                                 <div style={{ marginTop: '15px', display: 'flex', flexDirection: 'column', gap: '6px', background: 'rgba(0,0,0,0.2)', padding: '10px', borderRadius: '8px' }}>
                                    {pred.evaluations.map((evalData, eIdx) => {
@@ -1075,6 +1127,13 @@ export default function MLBHome() {
           )}
         </div>
       )}
+       {/* ═══ ENGINE AUDIT MODAL ═══ */}
+       {auditPlayer && (
+         <PlayerAuditModal 
+           player={auditPlayer} 
+           onClose={() => setAuditPlayer(null)} 
+         />
+       )}
       </div>
     </main>
   );
